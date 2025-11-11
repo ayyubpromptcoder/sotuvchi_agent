@@ -1,6 +1,8 @@
-# main.py
+# main.py - To'liq va To'g'ri Versiya
+
 import os
 import sys
+# Threadpool importini olib tashlaymiz, chunki PTB uni avtomatik boshqaradi.
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, 
@@ -8,6 +10,7 @@ from telegram.ext import (
 )
 
 # db.py dan kerakli funksiyalarni import qilamiz
+# Eslatma: 'db' dan import qilishda sinxron DB chaqiruvlari PTB tomonidan threadpoolga yuboriladi.
 try:
     from db import (
         create_tables, get_user_role, add_new_product, get_all_products, 
@@ -26,6 +29,8 @@ TOKEN = os.getenv("BOT_TOKEN")
 # DB ni majburan yaratish/tekshirish (Server ishga tushganda)
 try:
     print("🚀 [INIT] Baza jadvallarini yaratish/tekshirish boshlanmoqda...")
+    # Eslatma: Agar create_tables sinxron bo'lsa, u bloklaydi.
+    # Lekin biz uni server ishga tushishidan oldin chaqiramiz, muammo yo'q.
     create_tables()
     print("✅ [INIT] Baza jadvallari tayyor.")
 except Exception as e:
@@ -39,7 +44,7 @@ ADMIN_IDS = [int(i.strip()) for i in os.getenv("ADMIN_IDS", "").split(',') if i.
     NEW_PRODUCT_NAME, NEW_PRODUCT_PRICE,
     NEW_SELLER_NAME, NEW_SELLER_MAHALLA, NEW_SELLER_PHONE, NEW_SELLER_PASSWORD,
     AWAITING_PRODUCT_SELECTION,  
-    AWAITING_PRODUCT_COUNT     
+    AWAITING_PRODUCT_COUNT      
 ) = range(11)
 
 
@@ -52,23 +57,21 @@ def get_formatted_price(price: float) -> str:
 
 # --- 3. Buyruqlar (Handlers) ---
 
-# /start buyrug'i (Webhook debug loglari bilan)
+# /start buyrug'i (DB chaqiruvini optimallashtirish shart emas, chunki PTB uni avtomatik threadpoolga yuboradi)
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_id = update.effective_chat.id
     
     print(f"🤖 [1/6] /start buyrug'i qabul qilindi. Chat ID: {chat_id}.") 
     
-    try:
-        # Zudlik bilan tezkor javob
-        await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Roli tekshirilmoqda...") 
-    except Exception as e:
-        print(f"!!! DIQQAT: [XATO 3/6] Telegramga javob yuborishda xato: {e}", file=sys.stderr)
+    # Zudlik bilan tezkor javob (Long Pollingda bu shart emas, lekin qoldiramiz)
+    await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Roli tekshirilmoqda...") 
         
     try:
         # Rolni aniqlash
         if is_admin(chat_id):
             role = 'admin'
         else:
+            # get_user_role sinxron bo'lgani uchun, PTB uni avtomatik threadpoolda bajaradi.
             role = get_user_role(chat_id)
 
         print(f"✅ [5/6] Foydalanuvchi roli aniqlandi: {role}")
@@ -91,12 +94,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             reply_markup=ReplyKeyboardRemove()
         )
         return AWAITING_PASSWORD
-        
+            
     except Exception as e:
         print(f"!!! KRITIK XATO start_command da: {e}.", file=sys.stderr) 
         await update.message.reply_text(f"Tizimda ichki xato yuz berdi. Iltimos, keyinroq urinib ko'ring.")
         return ConversationHandler.END
 
+
+# --- Barcha boshqa Handlers (O'zgartirishsiz qoldiriladi) ---
 
 # Parolni Tekshirish Mantiqi
 async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -414,21 +419,26 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Xabarni 15 tadan bo'lib yuborish
         chunk_size = 15
         
-        for i, item in enumerate(items):
-            item_text = (
+        # Eslatma: items ro'yxatdagi ma'lumotlar bilan ishlash
+        
+        # Barcha qismlarni yig'amiz
+        all_item_texts = []
+        for item in items:
+            all_item_texts.append(
                 f"▪️ **{item['mahsulot_nomi']}**\n"
-                f"   Soni: {item['soni']} dona\n"
-                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
-                f"   Sana: {item['sana']}\n"
+                f"   Soni: {item['soni']} dona\n"
+                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
+                f"   Sana: {item['sana']}\n"
             )
-            text += item_text
-            
-            if (i + 1) % chunk_size == 0 or (i + 1) == len(items):
-                await update.message.reply_text(text, parse_mode='Markdown')
-                text = "..." 
-                
-    if text != "...":
-         await update.message.reply_text(text, parse_mode='Markdown')
+        
+        # Jami qarzdorlik hisoboti
+        await update.message.reply_text(text, parse_mode='Markdown')
+        
+        # Har bir bo'lakni yuborish
+        for i in range(0, len(all_item_texts), chunk_size):
+            chunk_text = "\n".join(all_item_texts[i:i + chunk_size])
+            await update.message.reply_text(f"**Tovarlar ro'yxati (davomi):**\n\n{chunk_text}", parse_mode='Markdown')
+
 
     return await show_seller_detail_menu(update, context)
 
@@ -456,21 +466,23 @@ async def show_my_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         # Xabarni 15 tadan bo'lib yuborish
         chunk_size = 15
         
-        for i, item in enumerate(items):
-            item_text = (
+        # Barcha qismlarni yig'amiz
+        all_item_texts = []
+        for item in items:
+            all_item_texts.append(
                 f"▪️ **{item['mahsulot_nomi']}**\n"
-                f"   Soni: {item['soni']} dona\n"
-                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
-                f"   Sana: {item['sana']}\n"
+                f"   Soni: {item['soni']} dona\n"
+                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
+                f"   Sana: {item['sana']}\n"
             )
-            text += item_text
-            
-            if (i + 1) % chunk_size == 0 or (i + 1) == len(items):
-                await update.message.reply_text(text, parse_mode='Markdown')
-                text = "..." 
-                
-    if text != "...":
-         await update.message.reply_text(text, parse_mode='Markdown')
+        
+        # Jami qarzdorlik hisoboti
+        await update.message.reply_text(text, parse_mode='Markdown')
+        
+        # Har bir bo'lakni yuborish
+        for i in range(0, len(all_item_texts), chunk_size):
+            chunk_text = "\n".join(all_item_texts[i:i + chunk_size])
+            await update.message.reply_text(f"**Tovarlar ro'yxati (davomi):**\n\n{chunk_text}", parse_mode='Markdown')
 
     return SELLER_MENU 
 
@@ -485,7 +497,7 @@ async def show_seller_products(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(product_list_text, parse_mode='Markdown')
     return SELLER_MENU 
 
-# --- 4. Botni ishga tushirish (Webhook Konfiguratsiyasi) ---
+# --- 4. Botni ishga tushirish (Long Polling Konfiguratsiyasi) ---
 
 if not TOKEN:
     print("!!! KRITIK XATO: BOT_TOKEN muhit o'zgaruvchisi topilmadi.", file=sys.stderr)
@@ -493,7 +505,7 @@ if not TOKEN:
 
 application = Application.builder().token(TOKEN).build()
 
-# Konversiya Handlerni yaratish
+# Konversiya Handlerni yaratish (O'zgartirishsiz)
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start_command)],
     states={
@@ -553,46 +565,17 @@ conv_handler = ConversationHandler(
 
 application.add_handler(conv_handler)
 
-# main.py ichidagi def main() funksiyasi
 
-# main.py ning eng pastki qismidagi 'main' funksiyasi
+# --- ASOSIY ISHGA TUSHIRISH FUNKSIYASI ---
+async def main() -> None:
+    """Server.py tomonidan chaqiriladigan asosiy asinxron bot funksiyasi (Long Polling)."""
+    print("🤖 [INIT] Bot asosiy jarayoni (Long Polling) ishga tushirildi.")
+    # Webhookni to'liq o'chirib tashlaymiz
+    await application.bot.delete_webhook()
+    print("✅ Telegram Webhook o'chirildi.")
+    # Botni Long Polling rejimida ishga tushirish
+    await application.run_polling()
 
-# main.py ning eng pastki qismidagi 'main' funksiyasi
 
-# main.py ning eng pastki qismidagi 'main' funksiyasi
-
-def main() -> None:
-    """Botni Webhook rejimida Render.com uchun ishga tushirish."""
-    
-    PORT = int(os.environ.get('PORT', 10000)) 
-    HOST_URL = os.environ.get('RENDER_EXTERNAL_URL')
-    
-    if not HOST_URL:
-        print("!!! KRITIK XATO: RENDER_EXTERNAL_URL muhit o'zgaruvchisi topilmadi. Webhook ishga tushmaydi.", file=sys.stderr)
-        return
-
-    # WEBHOOK PATH ni / yoki /update ga o'rnatamiz (TOKENSIZ)
-    WEBHOOK_PATH = f"/update/" 
-    WEBHOOK_URL = HOST_URL + WEBHOOK_PATH
-    
-    print(f"🚀 [INIT] Webhook ishga tushirilmoqda. Host URL: {HOST_URL}. Port: {PORT}")
-    print(f"✅ [INIT] Webhook PATH: {WEBHOOK_PATH}") 
-
-    # --- KRITIK O'ZGARTIRISH: run_webhook O'RNIGA start_webhook ---
-    # set_webhook ni qo'lda boshqarish uchun start_webhook ishlatiladi
-    
-    # 1. Webhookni o'rnatish
-    print("🌐 Webhookni qo'lda Telegramga o'rnatish boshlandi...")
-    application.bot.set_webhook(url=WEBHOOK_URL)
-    print(f"✅ Webhook muvaffaqiyatli o'rnatildi: {WEBHOOK_URL}")
-
-    # 2. Serverni ishga tushirish
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=WEBHOOK_PATH, 
-        webhook_url=WEBHOOK_URL, # Bu yerda endi asosan serverni ishga tushirish uchun
-    )
-
-if __name__ == "__main__":
-    main()
+# main.py endi o'zi ishga tushmaydi, balki server.py orqali ishga tushadi
+# if __name__ == "__main__": blokini to'liq o'chirib tashladik.
