@@ -8,9 +8,10 @@ from telegram.ext import (
 )
 
 # db.py dan kerakli funksiyalarni import qilamiz
+# Agar db.py joyida bo'lmasa, bot ishga tushmaydi
 try:
     from db import (
-        create_tables, # Majburiy tekshiruv uchun qo'shildi
+        create_tables, # Majburiy tekshiruv uchun
         get_user_role, add_new_product, get_all_products, 
         get_seller_by_password, update_seller_chat_id, add_new_seller,
         get_all_sellers, get_all_seller_passwords, get_seller_password_by_id,
@@ -30,9 +31,10 @@ try:
     create_tables()
     print("✅ [INIT] Baza jadvallari tayyor.")
 except Exception as e:
+    # Bu xato faqat logda qoladi. DB ulanish xatosi server ishga tushishini to'xtatmasin.
     print(f"!!! KRITIK XATO (INIT): Baza jadvallarini yaratish/tekshirishda xato: {e}", file=sys.stderr)
-    # Agar bu xato yuz bersa, ehtimol DATABASE_URL noto'g'ri. Bot ishlashini davom ettiradi.
 
+# Admin IDlarini muhit o'zgaruvchisidan o'qish
 ADMIN_IDS = [int(i.strip()) for i in os.getenv("ADMIN_IDS", "").split(',') if i.strip()]
 
 # Holatlar (ConversationHandler uchun)
@@ -60,56 +62,55 @@ def get_formatted_price(price: float) -> str:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_id = update.effective_chat.id
     
-    # 1. Debug: Kodning boshlanishini tasdiqlash
-    print(f"🤖 [1/5] /start buyrug'i qabul qilindi. Chat ID: {chat_id}. Tezkor javob yuborilmoqda...") 
+    # 1. DEBUG: Kodning eng boshlanishini tasdiqlash
+    print(f"🤖 [1/6] /start buyrug'i qabul qilindi. Chat ID: {chat_id}.") 
     
-    # 2. Debug: Telegramga tezkor javob yuborish (Aloqani tasdiqlash uchun)
+    # 2. DEBUG: Tezkor javob yuborilishidan oldin
+    print("🚀 [2/6] Tezkor javob yuborilmoqda... (DB chaqiruvidan oldin)")
+    
+    # 3. Tezkor javob (Eng muhimi!)
     try:
         await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Roli tekshirilmoqda...") 
     except Exception as e:
-        print(f"!!! DIQQAT: Telegramga tezkor javob yuborishda xato (Botdan xabar chiqmagan): {e}", file=sys.stderr)
-        # Agar bu yerda xato bo'lsa, davom etamiz, lekin logikani kuzatish qiyinlashadi.
-
+        # Agar bu log ko'rinsa, Demak, Telegram serveri bilan aloqada muammo bor
+        print(f"!!! DIQQAT: [XATO 3/6] Telegramga javob yuborishda xato: {e}", file=sys.stderr)
+        
     try:
-        # 3. Rolni aniqlash
-        print(f"🔎 [2/5] Rolni aniqlash boshlandi...")
+        # 4. Rolni aniqlash
+        print(f"🔎 [4/6] Rolni aniqlash boshlandi (DB chaqiruvlari shu yerdan boshlanadi)...")
         
         if is_admin(chat_id):
             role = 'admin'
         else:
-            # DB ga murojaat (Bu yer sekinlashishga yoki xatoga sabab bo'lishi mumkin)
+            # DB ga murojaat
             role = get_user_role(chat_id)
 
-        print(f"✅ [3/5] Foydalanuvchi roli aniqlandi: {role}")
+        print(f"✅ [5/6] Foydalanuvchi roli aniqlandi: {role}")
         
-        # 4. Mantiqiy yo'naltirish
+        # 5. Mantiqiy yo'naltirish
         if role == 'admin':
-            print("➡️ [4/5] Admin menyusi yuborilmoqda...")
+            print("➡️ [6/6] Admin menyusi yuborilmoqda.")
             keyboard = [[KeyboardButton("/mahsulot"), KeyboardButton("/sotuvchi")]]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
             await update.message.reply_text('Assalomu alaykum, Admin! Asosiy boshqaruv buyruqlari:', reply_markup=reply_markup)
-            print("✅ [5/5] Jarayon yakunlandi.")
             return ADMIN_MENU
         
         elif role == 'sotuvchi':
-            print("➡️ [4/5] Sotuvchi menyusi yuborilmoqda...")
+            print("➡️ [6/6] Sotuvchi menyusi yuborilmoqda.")
             keyboard = [[KeyboardButton("Mahsulotlarim"), KeyboardButton("Qarzdorligim")]]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
             await update.message.reply_text("Siz tizimga kirdingiz. O'zingizga kerakli bo'limni tanlang:", reply_markup=reply_markup)
-            print("✅ [5/5] Jarayon yakunlandi.")
             return SELLER_MENU
         
-        # 5. Ro'yxatdan o'tmagan foydalanuvchi
-        print("➡️ [4/5] Parol kiritish so'ralmoqda...")
+        # 6. Ro'yxatdan o'tmagan foydalanuvchi
+        print("➡️ [6/6] Parol kiritish so'ralmoqda.")
         await update.message.reply_text(
             "Assalomu alaykum. Iltimos, profilingizga kirish uchun maxsus parolingizni kiriting:",
             reply_markup=ReplyKeyboardRemove()
         )
-        print("✅ [5/5] Jarayon yakunlandi.")
         return AWAITING_PASSWORD
         
     except Exception as e:
-        # KRITIK XATOni logga va userga yuborish
         error_message = f"!!! KRITIK XATO start_command da: {e}."
         print(error_message, file=sys.stderr) 
         
@@ -139,7 +140,7 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Kiritilgan parol noto'g'ri. Iltimos, qayta urinib ko'ring.")
         return AWAITING_PASSWORD
 
-# --- Qolgan barcha funksiyalar (oldin yozilgan va debug qilingan) ---
+# --- Admin Mahsulot Bo'limi ---
 
 async def mahsulot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
@@ -183,6 +184,8 @@ async def show_all_products(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(product_list_text, parse_mode='Markdown')
     return ADMIN_MENU
 
+# --- Admin Sotuvchi Qo'shish Bo'limi ---
+
 async def sotuvchi_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
     keyboard = [
@@ -220,6 +223,8 @@ async def get_new_seller_password(update: Update, context: ContextTypes.DEFAULT_
     else:
         await update.message.reply_text("Sotuvchi qo'shishda xatolik yuz berdi (Balki parol allaqachon mavjud).")
     return await sotuvchi_command(update, context)
+
+# --- Admin Sotuvchi Boshqaruvi (Ro'yxat) ---
 
 async def sellers_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
@@ -270,6 +275,8 @@ async def show_seller_passwords(update: Update, context: ContextTypes.DEFAULT_TY
             text += f"👤 {seller['ism']}: `{seller['parol']}`\n"
     await update.message.reply_text(text, parse_mode='Markdown')
     return await sellers_menu(update, context)
+
+# --- Admin Sotuvchi Detail Boshqaruvi ---
 
 async def show_seller_detail_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
@@ -324,6 +331,8 @@ async def show_seller_password(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"Parol topilmadi yoki xatolik yuz berdi.")
         
     return await show_seller_detail_menu(update, context) 
+
+# --- Admin Tovar Berish Mantiqi ---
 
 async def start_new_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
@@ -407,6 +416,8 @@ async def finalize_inventory_count(update: Update, context: ContextTypes.DEFAULT
     context.user_data.pop('temp_product_id', None)
     return await show_seller_detail_menu(update, context) 
 
+# --- Admin Qarzdorlik Bo'limi ---
+
 async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
     
@@ -430,6 +441,7 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         text += "📦 **Berilgan Tovarlar Ro'yxati:**\n\n"
         
+        # Xabarni 15 tadan bo'lib yuborish (Telegram limiti uchun)
         chunk_size = 15
         
         for i, item in enumerate(items):
@@ -450,6 +462,7 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     return await show_seller_detail_menu(update, context)
 
+# --- Sotuvchi Menyusi ---
 
 async def show_my_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_id = update.effective_chat.id
@@ -546,6 +559,7 @@ conv_handler = ConversationHandler(
             CommandHandler("sotuvchi_orqaga", sotuvchi_command),
             CommandHandler("sotuvchi_orqaga_detal", sellers_menu),
 
+            # Sotuvchi ismini tanlash
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE,
                 show_seller_detail_menu
