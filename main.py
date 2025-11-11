@@ -419,8 +419,6 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Xabarni 15 tadan bo'lib yuborish
         chunk_size = 15
         
-        # Eslatma: items ro'yxatdagi ma'lumotlar bilan ishlash
-        
         # Barcha qismlarni yig'amiz
         all_item_texts = []
         for item in items:
@@ -503,7 +501,7 @@ if not TOKEN:
     print("!!! KRITIK XATO: BOT_TOKEN muhit o'zgaruvchisi topilmadi.", file=sys.stderr)
     sys.exit(1)
 
-application = Application.builder().token(TOKEN).build()
+application = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
 # Konversiya Handlerni yaratish (O'zgartirishsiz)
 conv_handler = ConversationHandler(
@@ -574,8 +572,8 @@ async def main() -> None:
     await application.bot.delete_webhook()
     print("✅ Telegram Webhook o'chirildi.")
     # Botni Long Polling rejimida ishga tushirish
-    await application.run_polling()
-
+    # !!! Render/Threadpool muammosini hal qilish uchun ASOSIY O'ZGARTIRISH !!!
+    await application.run_polling(poll_interval=1, timeout=30, stop_signals=None)
 
 # main.py endi o'zi ishga tushmaydi, balki server.py orqali ishga tushadi
 # if __name__ == "__main__": blokini to'liq o'chirib tashladik.
