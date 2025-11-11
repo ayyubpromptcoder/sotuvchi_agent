@@ -1,122 +1,134 @@
-# server.py - SIGTERM va Loop yopish xatolarini hal qiluvchi yangi versiya
-
 import os
-import threading
-import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import signal
-import asyncio
 import sys
+import threading
+import asyncio
+import signal
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from logging import getLogger
 
-# main.py dan asosiy funksiyani import qilamiz
+# main.py dan Application va main funksiyalarini import qilamiz
 try:
-    from main import main as bot_main_async_func 
-except ImportError:
-    logging.error("!!! KRITIK XATO: main.py fayli import qilinmadi.")
+    from main import main, application 
+except ImportError as e:
+    print(f"!!! KRITIK XATO: main.py fayli topilmadi yoki import qilinmadi: {e}", file=sys.stderr)
     sys.exit(1)
 
-# Logging sozlamalari
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# --- Konfiguratsiya ---
+HOST = '0.0.0.0'
+PORT = int(os.getenv("PORT", 10000)) # Render talab qiladigan port
+logger = getLogger("server")
 
-PORT = int(os.environ.get("PORT", 8080))
-
-# Global o'zgaruvchilar
-httpd = None 
+# --- Global O'zgaruvchilar ---
+httpd = None
 bot_thread = None
-bot_loop = None # Yangi: Botning event loop'ini saqlaymiz
+bot_loop = None # Botni ishga tushiradigan Event Loop
 
-# --- HTTP HANDLER (Health Check uchun) ---
+# --- Asosiy Xizmat Ishlari ---
 
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Render'dan kelgan Health Check so'rovlariga javob beradi."""
-    
-    def _send_response(self):
-        self.send_response(200) # 200 OK
-        self.send_header('Content-type', 'text/plain')
-        self.end_headers()
-        self.wfile.write(b"Bot is running and awake.")
-
-    def do_GET(self): self._send_response()
-    def do_HEAD(self): self._send_response()
-    def do_POST(self): self._send_response()
-        
-    def log_message(self, format, *args): 
-        # HTTP serverning keraksiz loglarini o'chiradi
-        return 
-
-# --- SERVER BOSHQARUVI ---
-
-def start_bot_polling():
-    """Bot Pollingni mustaqil, yangi event loop bilan ishga tushiradi."""
+def start_bot_loop():
+    """Botning asosiy asinxron jarayonini yangi threadda boshlash."""
     global bot_loop
-    logger.info("🤖 [POLLING THREAD] Bot Polling ishga tushirilmoqda.")
+    # Yangi Event Loop yaratish va uni shu Thread uchun o'rnatish
+    bot_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(bot_loop)
+    
+    # main() koroutinni loopda ishga tushiramiz
     try:
-        # Yangi event loop yaratish va uni joriy thread uchun o'rnatish
-        bot_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(bot_loop)
-        
-        # main.py dagi async def main() ni chaqirish
-        bot_loop.run_until_complete(bot_main_async_func())
+        # main() funksiyasini syncron tarzda ishga tushirish (Long Polling)
+        bot_loop.run_until_complete(main())
     except asyncio.CancelledError:
-        logger.info("✅ Bot Polling thread'i bekor qilindi.")
+        logger.info("Bot jarayoni to'xtatildi (Cancelled).")
     except Exception as e:
-        # Loop yopishdagi xatolar odatda shu yerda ushlanadi.
         logger.error(f"!!! Xato (Bot Thread): {e}")
 
+
 def stop_all(signum=None, frame=None):
-    """SIGTERM signali kelganda serverni va Bot Loopni to'xtatadi."""
-    global httpd, bot_thread, bot_loop
+    """SIGTERM signali kelganda serverni va Bot Loopni xavfsiz to'xtatadi."""
+    global httpd, bot_thread, bot_loop, application
     logger.warning("⚠️ SIGTERM signali qabul qilindi. Jarayonlar to'xtatilmoqda...")
     
-    # 1. Botning Event Loopini yopish (asosiy muammo)
-    if bot_loop and bot_loop.is_running():
-        logger.info("Botning Asyncio Loop'i yopilmoqda...")
-        
-        # Loop ichidagi barcha async tasklarni bekor qilish
-        for task in asyncio.all_tasks(bot_loop):
-            task.cancel()
-        
-        # Loopni xavfsiz to'xtatish uchun asinxron funksiya yozish
-        def stop_loop():
-            if bot_loop:
-                bot_loop.stop()
-                
-        # Loopni boshqa thread orqali to'xtatish
-        if bot_loop.is_running():
-            bot_loop.call_soon_threadsafe(stop_loop)
-            
-    # 2. HTTP serverni to'xtatish
+    # 1. HTTP serverni to'xtatish
     if httpd:
+        logger.info("HTTP Health Check Serveri o'chirilmoqda...")
+        # Shutdown() funksiyasi Blocking bo'lgani uchun uni alohida Threadda ishlatamiz
         threading.Thread(target=httpd.shutdown).start()
         
+    # 2. Botning Event Loop'ini xavfsiz to'xtatish (Eng Muhim Qism)
+    if bot_loop and bot_loop.is_running():
+        logger.info("Botning Asyncio Loop'i va PTB Application yopilmoqda...")
+        
+        async def shutdown_ptb():
+            """Asinxron ravishda PTB ni to'xtatish."""
+            logger.info("PTB Application.stop() chaqirilmoqda...")
+            await application.stop() # PTB ni xavfsiz yopish uchun PTB ning o'z usuli
+            
+        try:
+            # Asinxron to'xtatishni bot_loop orqali chaqirish
+            future = asyncio.run_coroutine_threadsafe(shutdown_ptb(), bot_loop)
+            
+            # 5 soniya kutamiz
+            future.result(timeout=5)
+            logger.info("PTB Application muvaffaqiyatli yopildi.")
+
+        except asyncio.TimeoutError:
+            logger.error("PTB Application 5 soniya ichida yopilmadi. Majburan to'xtatish...")
+        except Exception as e:
+            logger.error(f"PTBni yopishda kutilmagan xato: {e}")
+
+        # Loopning o'zini to'xtatish
+        bot_loop.call_soon_threadsafe(bot_loop.stop)
+        
     # Asosiy jarayonni tugatish
-    sys.exit(0) 
+    logger.info("Render jarayoni yakunlanmoqda.")
+    sys.exit(0)
 
-def start_server():
-    """Health Check Serverni va Bot Threadni boshlaydi."""
-    global httpd, bot_thread
+
+# --- HTTP Health Check Server (Render uchun) ---
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Render uchun oddiy Health Check / Liveness Check."""
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def start_http_server():
+    """Health Check serverni boshlash (Asosiy Threadda)."""
+    global httpd
     
-    # SIGTERM handlerini o'rnatish
-    # PTB dan farqli o'laroq, bu yerda SIGTERMni to'g'ri boshqarish Render uchun muhim.
+    # SIGTERM (15) va SIGINT (Ctrl+C) signallarini stop_all funksiyasiga ulash
     signal.signal(signal.SIGTERM, stop_all)
+    signal.signal(signal.SIGINT, stop_all)
 
-    # 1. Bot Pollingni alohida Threadda ishga tushirish
-    bot_thread = threading.Thread(target=start_bot_polling)
-    bot_thread.daemon = True # Asosiy jarayon tugasa, bu ham tugaydi
-    bot_thread.start()
-    
-    # 2. Health Check Serverni asosiy Threadda ishga tushirish
-    server_address = ('0.0.0.0', PORT)
     try:
-        httpd = HTTPServer(server_address, HealthCheckHandler)
-        logger.info(f"🚀 Health Check Server 0.0.0.0:{PORT} portida ishga tushdi (Asosiy Thread).")
-        # server.py jarayonini Health Check Server ishlayotgan holda ushlab turadi
+        httpd = HTTPServer((HOST, PORT), HealthCheckHandler)
+        logger.info(f"🚀 Health Check Server {HOST}:{PORT} portida ishga tushdi (Asosiy Thread).")
+        # httpd.serve_forever() serverni boshqa joydan to'xtatish imkonini beradi
         httpd.serve_forever() 
     except Exception as e:
-        logger.error(f"!!! KRITIK XATO: HTTP Serverni ishga tushirishda xato: {e}")
-        stop_all()
+        logger.error(f"!!! Xato (HTTP Server): {e}")
 
 
-if __name__ == "__main__":
-    start_server()
+# --- Ishga Tushirish Mantiqi ---
+
+if __name__ == '__main__':
+    # 1. Botni alohida Threadda boshlash (Asinxron operatsiyalar uchun)
+    bot_thread = threading.Thread(target=start_bot_loop, name="BotPollingThread")
+    bot_thread.start()
+    logger.info("🤖 [POLLING THREAD] Bot Polling ishga tushirilmoqda.")
+
+    # Kichik kutish vaqti berish (Loop to'liq boshlanishi uchun)
+    time.sleep(1)
+
+    # 2. Asosiy Threadda Health Check serverni boshlash
+    start_http_server()
+    
+    # Server o'chirilgandan keyin Bot Threadni tozalash
+    if bot_thread.is_alive():
+        bot_thread.join(timeout=5)
