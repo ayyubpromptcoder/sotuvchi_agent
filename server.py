@@ -1,4 +1,4 @@
-# server.py - Render uchun optimallashtirilgan barqaror versiya
+# server.py - SIGTERM va Loop yopish xatolarini hal qiluvchi yangi versiya
 
 import os
 import threading
@@ -6,7 +6,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import signal
 import asyncio
-import sys # asyncio.run ni tozalash uchun kerak
+import sys
 
 # main.py dan asosiy funksiyani import qilamiz
 try:
@@ -19,12 +19,12 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Render Environment Variable'dan PORT ni olish
 PORT = int(os.environ.get("PORT", 8080))
 
 # Global o'zgaruvchilar
 httpd = None 
 bot_thread = None
+bot_loop = None # Yangi: Botning event loop'ini saqlaymiz
 
 # --- HTTP HANDLER (Health Check uchun) ---
 
@@ -49,41 +49,56 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
 def start_bot_polling():
     """Bot Pollingni mustaqil, yangi event loop bilan ishga tushiradi."""
+    global bot_loop
     logger.info("🤖 [POLLING THREAD] Bot Polling ishga tushirilmoqda.")
     try:
         # Yangi event loop yaratish va uni joriy thread uchun o'rnatish
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        bot_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(bot_loop)
         
         # main.py dagi async def main() ni chaqirish
-        loop.run_until_complete(bot_main_async_func())
+        bot_loop.run_until_complete(bot_main_async_func())
     except asyncio.CancelledError:
         logger.info("✅ Bot Polling thread'i bekor qilindi.")
     except Exception as e:
-        logger.error(f"!!! KRITIK XATO (Bot Thread): {e}")
+        # Loop yopishdagi xatolar odatda shu yerda ushlanadi.
+        logger.error(f"!!! Xato (Bot Thread): {e}")
 
 def stop_all(signum=None, frame=None):
-    """SIGTERM signali kelganda serverni to'xtatadi."""
-    global httpd, bot_thread
+    """SIGTERM signali kelganda serverni va Bot Loopni to'xtatadi."""
+    global httpd, bot_thread, bot_loop
     logger.warning("⚠️ SIGTERM signali qabul qilindi. Jarayonlar to'xtatilmoqda...")
     
-    # 1. HTTP serverni to'xtatish
+    # 1. Botning Event Loopini yopish (asosiy muammo)
+    if bot_loop and bot_loop.is_running():
+        logger.info("Botning Asyncio Loop'i yopilmoqda...")
+        
+        # Loop ichidagi barcha async tasklarni bekor qilish
+        for task in asyncio.all_tasks(bot_loop):
+            task.cancel()
+        
+        # Loopni xavfsiz to'xtatish uchun asinxron funksiya yozish
+        def stop_loop():
+            if bot_loop:
+                bot_loop.stop()
+                
+        # Loopni boshqa thread orqali to'xtatish
+        if bot_loop.is_running():
+            bot_loop.call_soon_threadsafe(stop_loop)
+            
+    # 2. HTTP serverni to'xtatish
     if httpd:
         threading.Thread(target=httpd.shutdown).start()
         
-    # 2. Bot threadini to'xtatish (Afsuski, to'g'ri to'xtatish PTB ga bog'liq, lekin Render majburiy yopadi)
-    if bot_thread and bot_thread.is_alive():
-        # Bu yerda botning ichki asyncio loopiga signal yuborish murakkab,
-        # shuning uchun shunchaki Render ning majburiy to'xtatishini kutamiz.
-        logger.info("Bot Polling thread'i yopilishi kutilmoqda...")
-
-    sys.exit(0) # Jarayonni xavfsiz tugatish
+    # Asosiy jarayonni tugatish
+    sys.exit(0) 
 
 def start_server():
     """Health Check Serverni va Bot Threadni boshlaydi."""
     global httpd, bot_thread
     
     # SIGTERM handlerini o'rnatish
+    # PTB dan farqli o'laroq, bu yerda SIGTERMni to'g'ri boshqarish Render uchun muhim.
     signal.signal(signal.SIGTERM, stop_all)
 
     # 1. Bot Pollingni alohida Threadda ishga tushirish
