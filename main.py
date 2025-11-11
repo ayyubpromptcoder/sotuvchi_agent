@@ -52,19 +52,20 @@ def get_formatted_price(price: float) -> str:
 
 # --- 3. Buyruqlar (Handlers) ---
 
+# /start buyrug'i (Webhook debug loglari bilan)
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_id = update.effective_chat.id
     
     print(f"🤖 [1/6] /start buyrug'i qabul qilindi. Chat ID: {chat_id}.") 
     
-    # 1. Zudlik bilan tezkor javob yuborish
     try:
+        # Zudlik bilan tezkor javob
         await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Roli tekshirilmoqda...") 
     except Exception as e:
         print(f"!!! DIQQAT: [XATO 3/6] Telegramga javob yuborishda xato: {e}", file=sys.stderr)
         
     try:
-        # 2. Rolni aniqlash (DB chaqiruvi)
+        # Rolni aniqlash
         if is_admin(chat_id):
             role = 'admin'
         else:
@@ -72,7 +73,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
         print(f"✅ [5/6] Foydalanuvchi roli aniqlandi: {role}")
         
-        # 3. Mantiqiy yo'naltirish
+        # Mantiqiy yo'naltirish
         if role == 'admin':
             keyboard = [[KeyboardButton("/mahsulot"), KeyboardButton("/sotuvchi")]]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
@@ -85,7 +86,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await update.message.reply_text("Siz tizimga kirdingiz. O'zingizga kerakli bo'limni tanlang:", reply_markup=reply_markup)
             return SELLER_MENU
         
-        # 4. Ro'yxatdan o'tmagan foydalanuvchi
         await update.message.reply_text(
             "Assalomu alaykum. Iltimos, profilingizga kirish uchun maxsus parolingizni kiriting:",
             reply_markup=ReplyKeyboardRemove()
@@ -98,8 +98,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
 
 
-# --- Parol va Ro'yxatdan O'tish Mantiqlari ---
-
+# Parolni Tekshirish Mantiqi
 async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     password = update.message.text
     chat_id = update.effective_chat.id
@@ -203,7 +202,41 @@ async def show_all_sellers(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     await update.message.reply_text("🧑‍🤝‍🧑 **Sotuvchini tanlang:**", reply_markup=reply_markup, parse_mode='Markdown')
     return ADMIN_MENU
+
+async def show_seller_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not is_admin(update.effective_chat.id): return ConversationHandler.END
     
+    selected_seller_id = context.user_data.get('selected_seller_id')
+    selected_seller_name = context.user_data.get('selected_seller_name')
+
+    if not selected_seller_id:
+        await update.message.reply_text("Avval sotuvchini tanlang.")
+        return ADMIN_MENU
+
+    password = get_seller_password_by_id(selected_seller_id)
+    
+    if password:
+        await update.message.reply_text(
+            f"👤 **{selected_seller_name}** paroli: `{password}`",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(f"Parol topilmadi yoki xatolik yuz berdi.")
+        
+    return await show_seller_detail_menu(update, context) 
+
+async def show_seller_passwords(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not is_admin(update.effective_chat.id): return ConversationHandler.END
+    passwords = get_all_seller_passwords()
+    text = "🔐 **Sotuvchilar Parollari Ro'yxati:**\n\n"
+    for seller in passwords:
+        text += f"👤 {seller['ism']}: `{seller['parol']}`\n"
+    await update.message.reply_text(text, parse_mode='Markdown')
+    return await sellers_menu(update, context)
+
+
+# --- Admin Sotuvchi Qo'shish ---
+
 async def new_seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Yangi sotuvchining **ism**ini kiriting:", reply_markup=ReplyKeyboardRemove())
     return NEW_SELLER_NAME
@@ -233,7 +266,171 @@ async def get_new_seller_password(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("Sotuvchi qo'shishda xatolik yuz berdi (Balki parol allaqachon mavjud).")
     return await sotuvchi_command(update, context)
 
-# ... (Qolgan Admin detali va Sotuvchi menyusi funksiyalari (start_new_inventory, show_my_debt, show_seller_debt, va h.k.) shu yerda davom etadi) ...
+# --- Admin Sotuvchi Detal Menyusi ---
+
+async def show_seller_detail_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not is_admin(update.effective_chat.id): return ConversationHandler.END
+
+    # Agar Message Handler orqali kelsa (sotuvchi tanlansa)
+    if update.message and update.message.text:
+        selected_seller_name = update.message.text
+        seller_id_map = context.user_data.get('seller_names_to_id', {})
+        selected_seller_id = seller_id_map.get(selected_seller_name)
+        
+        if selected_seller_id:
+            context.user_data['selected_seller_id'] = selected_seller_id
+            context.user_data['selected_seller_name'] = selected_seller_name
+    
+    selected_seller_name = context.user_data.get('selected_seller_name', 'Tanlanmagan Sotuvchi')
+    
+    if selected_seller_name == 'Tanlanmagan Sotuvchi':
+        await update.message.reply_text("Iltimos, avval ro'yxatdan sotuvchini tanlang.")
+        return ADMIN_MENU
+
+    keyboard = [
+        [KeyboardButton("Mahsulotlar va Qarzdorlik"), KeyboardButton("Yangi Tovar Berish")],
+        [KeyboardButton("Sotuvchi Paroli")],
+        [KeyboardButton("/sotuvchi_orqaga_detal")] 
+    ]
+
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
+    await update.message.reply_text(
+        f"👤 **{selected_seller_name}** uchun boshqaruv menyusi:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    return ADMIN_MENU
+
+# --- Admin Tovar Berish Mantiqi ---
+
+async def start_new_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not is_admin(update.effective_chat.id): return ConversationHandler.END
+    
+    selected_seller_id = context.user_data.get('selected_seller_id')
+    selected_seller_name = context.user_data.get('selected_seller_name')
+
+    if not selected_seller_id:
+        await update.message.reply_text("Avval sotuvchini tanlang.")
+        return ADMIN_MENU
+
+    products = get_all_products()
+    if not products:
+        await update.message.reply_text("Bazada mahsulotlar mavjud emas. Avval mahsulot kiriting.")
+        return ADMIN_MENU
+
+    inline_keyboard = []
+    for i in range(0, len(products), 2):
+        row = []
+        for product in products[i:i+2]:
+             callback_data = f"prod:{product['id']}"
+             row.append(InlineKeyboardButton(product['nomi'], callback_data=callback_data))
+        inline_keyboard.append(row)
+
+    reply_markup = InlineKeyboardMarkup(inline_keyboard)
+    
+    await update.message.reply_text(
+        f"➡️ **{selected_seller_name}** uchun qaysi **mahsulot**ni berasiz?",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    return AWAITING_PRODUCT_SELECTION 
+
+async def select_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    callback_data = query.data
+    
+    if callback_data.startswith('prod:'):
+        product_id = int(callback_data.split(':')[1])
+        context.user_data['temp_product_id'] = product_id
+        
+        await query.edit_message_text(
+            f"✅ Mahsulot tanlandi. Iltimos, **necha dona** berayotganingizni kiriting (faqat butun son):",
+            parse_mode='Markdown'
+        )
+        return AWAITING_PRODUCT_COUNT
+    
+    return AWAITING_PRODUCT_SELECTION 
+
+async def finalize_inventory_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not is_admin(update.effective_chat.id): return ConversationHandler.END
+    
+    selected_seller_id = context.user_data.get('selected_seller_id')
+    selected_seller_name = context.user_data.get('selected_seller_name')
+    product_id = context.user_data.get('temp_product_id')
+    
+    try:
+        count = int(update.message.text)
+        if count <= 0: raise ValueError
+    except ValueError:
+        await update.message.reply_text("Noto'g'ri qiymat. Iltimos, musbat butun son kiriting.")
+        return AWAITING_PRODUCT_COUNT
+
+    success, product_name, total_price = add_inventory(selected_seller_id, product_id, count)
+    
+    if success:
+        formatted_price = get_formatted_price(total_price)
+        await update.message.reply_text(
+            f"✅ Tovar muvaffaqiyatli berildi!\n\n"
+            f"👤 Sotuvchi: **{selected_seller_name}**\n"
+            f"📦 Mahsulot: **{product_name}**\n"
+            f"🔢 Soni: **{count} dona**\n"
+            f"💵 Jami narx: **{formatted_price} so'm**",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(f"Xatolik yuz berdi: {product_name}")
+
+    context.user_data.pop('temp_product_id', None)
+    return await show_seller_detail_menu(update, context) 
+
+# --- Admin Qarzdorlik Bo'limi ---
+
+async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not is_admin(update.effective_chat.id): return ConversationHandler.END
+    
+    selected_seller_id = context.user_data.get('selected_seller_id')
+    selected_seller_name = context.user_data.get('selected_seller_name')
+
+    if not selected_seller_id:
+        await update.message.reply_text("Avval sotuvchini tanlang.")
+        return ADMIN_MENU
+
+    total_debt, items = get_seller_debt_details(selected_seller_id)
+
+    formatted_debt = get_formatted_price(total_debt)
+    
+    text = f"💰 **{selected_seller_name}** uchun qarzdorlik hisoboti:\n\n"
+    text += f"**💳 JAMI QARZDORLIK: {formatted_debt} so'm**\n"
+    text += "--------------------------------------\n"
+    
+    if not items:
+        text += "📦 Sotuvchiga hali hech qanday tovar berilmagan."
+    else:
+        text += "📦 **Berilgan Tovarlar Ro'yxati:**\n\n"
+        
+        # Xabarni 15 tadan bo'lib yuborish
+        chunk_size = 15
+        
+        for i, item in enumerate(items):
+            item_text = (
+                f"▪️ **{item['mahsulot_nomi']}**\n"
+                f"   Soni: {item['soni']} dona\n"
+                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
+                f"   Sana: {item['sana']}\n"
+            )
+            text += item_text
+            
+            if (i + 1) % chunk_size == 0 or (i + 1) == len(items):
+                await update.message.reply_text(text, parse_mode='Markdown')
+                text = "..." 
+                
+    if text != "...":
+         await update.message.reply_text(text, parse_mode='Markdown')
+
+    return await show_seller_detail_menu(update, context)
 
 # --- Sotuvchi Menyusi ---
 
@@ -253,8 +450,27 @@ async def show_my_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     
     if not items:
         text += "--------------------------------------\n📦 Sizga hali tovar berilmagan."
-    
-    await update.message.reply_text(text, parse_mode='Markdown')
+    else:
+        text += "--------------------------------------\n📦 **Olingan Tovarlar Ro'yxati:**\n\n"
+        
+        # Xabarni 15 tadan bo'lib yuborish
+        chunk_size = 15
+        
+        for i, item in enumerate(items):
+            item_text = (
+                f"▪️ **{item['mahsulot_nomi']}**\n"
+                f"   Soni: {item['soni']} dona\n"
+                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
+                f"   Sana: {item['sana']}\n"
+            )
+            text += item_text
+            
+            if (i + 1) % chunk_size == 0 or (i + 1) == len(items):
+                await update.message.reply_text(text, parse_mode='Markdown')
+                text = "..." 
+                
+    if text != "...":
+         await update.message.reply_text(text, parse_mode='Markdown')
 
     return SELLER_MENU 
 
@@ -268,7 +484,6 @@ async def show_seller_products(update: Update, context: ContextTypes.DEFAULT_TYP
             product_list_text += f"{idx+1}. **{product['nomi']}** (Narxi: {get_formatted_price(product['narxi'])} so'm)\n"
         await update.message.reply_text(product_list_text, parse_mode='Markdown')
     return SELLER_MENU 
-
 
 # --- 4. Botni ishga tushirish (Webhook Konfiguratsiyasi) ---
 
@@ -285,17 +500,37 @@ conv_handler = ConversationHandler(
         AWAITING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_password)],
         
         ADMIN_MENU: [
+            # Mahsulot
             CommandHandler("mahsulot", mahsulot_command),
             MessageHandler(filters.Text("Mahsulotlar"), show_all_products),
             MessageHandler(filters.Text("Yangi mahsulot kiritish"), new_product_start),
             
+            # Sotuvchi
             CommandHandler("sotuvchi", sotuvchi_command),
             MessageHandler(filters.Text("Sotuvchilar"), sellers_menu),
             MessageHandler(filters.Text("Yangi Sotuvchi Qo'shish"), new_seller_start),
             
-            # ... (qolgan admin handlerlari)
+            # Sotuvchi Ro'yxati
+            MessageHandler(filters.Text("Barcha Sotuvchilar"), show_all_sellers),
+            MessageHandler(filters.Text("Sotuvchilar Parollari"), show_seller_passwords),
+            
+            # Sotuvchi Detali
+            MessageHandler(filters.Text("Sotuvchi Paroli"), show_seller_password),
+            MessageHandler(filters.Text("Yangi Tovar Berish"), start_new_inventory),
+            MessageHandler(filters.Text("Mahsulotlar va Qarzdorlik"), show_seller_debt),
+            
+            # Orqaga qaytish
+            CommandHandler("sotuvchi_orqaga", sotuvchi_command),
+            CommandHandler("sotuvchi_orqaga_detal", sellers_menu),
+
+            # Sotuvchi ismini tanlash (show_all_sellersdan keyin)
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE,
+                show_seller_detail_menu
+            )
         ],
         
+        # Ma'lumot kiritish holatlari
         NEW_PRODUCT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_product_name)],
         NEW_PRODUCT_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_product_price)],
         NEW_SELLER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_seller_name)],
@@ -303,8 +538,11 @@ conv_handler = ConversationHandler(
         NEW_SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_seller_phone)],
         NEW_SELLER_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_seller_password)],
         
-        # ... (qolgan holatlar)
+        # Tovar Berish mantiqi
+        AWAITING_PRODUCT_SELECTION: [CallbackQueryHandler(select_product_callback)],
+        AWAITING_PRODUCT_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, finalize_inventory_count)],
         
+        # Sotuvchi Menyusi
         SELLER_MENU: [
             MessageHandler(filters.Text("Qarzdorligim"), show_my_debt),
             MessageHandler(filters.Text("Mahsulotlarim"), show_seller_products) 
@@ -318,23 +556,19 @@ application.add_handler(conv_handler)
 def main() -> None:
     """Botni Webhook rejimida Render.com uchun ishga tushirish."""
     
-    # Render odatda 10000 portni talab qiladi
     PORT = int(os.environ.get('PORT', 10000)) 
-    
-    # Render muhitidan asosiy URLni olish (Render tomonidan avtomatik o'rnatiladi)
     HOST_URL = os.environ.get('RENDER_EXTERNAL_URL')
     
     if not HOST_URL:
         print("!!! KRITIK XATO: RENDER_EXTERNAL_URL muhit o'zgaruvchisi topilmadi. Webhook ishga tushmaydi.", file=sys.stderr)
         return
 
-    # Webhook URLni yasash (Masalan: https://myapp.onrender.com/webhook/token)
     WEBHOOK_PATH = f"/webhook/{TOKEN}"
     WEBHOOK_URL = HOST_URL + WEBHOOK_PATH
     
     print(f"🚀 [INIT] Webhook ishga tushirilmoqda. Host URL: {HOST_URL}. Port: {PORT}")
     
-    # Webhook ishga tushirish (Uvicorn serverini ishlatadi)
+    # Webhook ishga tushirish
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
