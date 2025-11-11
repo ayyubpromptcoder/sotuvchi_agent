@@ -559,6 +559,8 @@ application.add_handler(conv_handler)
 
 # main.py ning eng pastki qismidagi 'main' funksiyasi
 
+# main.py ning eng pastki qismidagi 'main' funksiyasi
+
 def main() -> None:
     """Botni Webhook rejimida Render.com uchun ishga tushirish."""
     
@@ -569,21 +571,27 @@ def main() -> None:
         print("!!! KRITIK XATO: RENDER_EXTERNAL_URL muhit o'zgaruvchisi topilmadi. Webhook ishga tushmaydi.", file=sys.stderr)
         return
 
-    # >>>>> ENG YAKUNIY O'ZGARTIRISH: Faqat ildiz yo'lga ulanamiz
-    # -----------------------------------------------------
-    WEBHOOK_PATH = "/"  
-    WEBHOOK_URL = HOST_URL
-    # -----------------------------------------------------
+    # WEBHOOK PATH ni / yoki /update ga o'rnatamiz (TOKENSIZ)
+    WEBHOOK_PATH = f"/update/" 
+    WEBHOOK_URL = HOST_URL + WEBHOOK_PATH
     
     print(f"🚀 [INIT] Webhook ishga tushirilmoqda. Host URL: {HOST_URL}. Port: {PORT}")
     print(f"✅ [INIT] Webhook PATH: {WEBHOOK_PATH}") 
+
+    # --- KRITIK O'ZGARTIRISH: run_webhook O'RNIGA start_webhook ---
+    # set_webhook ni qo'lda boshqarish uchun start_webhook ishlatiladi
     
-    # Webhook ishga tushirish (url_path ham WEBHOOK_PATH ga o'zgardi)
+    # 1. Webhookni o'rnatish
+    print("🌐 Webhookni qo'lda Telegramga o'rnatish boshlandi...")
+    application.bot.set_webhook(url=WEBHOOK_URL)
+    print(f"✅ Webhook muvaffaqiyatli o'rnatildi: {WEBHOOK_URL}")
+
+    # 2. Serverni ishga tushirish
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=WEBHOOK_PATH, 
-        webhook_url=WEBHOOK_URL,      # Bu yerda faqat HOST_URL bo'lishi kerak!
+        webhook_url=WEBHOOK_URL, # Bu yerda endi asosan serverni ishga tushirish uchun
     )
 
 if __name__ == "__main__":
