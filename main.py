@@ -1,5 +1,6 @@
 # main.py
 import os
+import sys
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, 
@@ -7,12 +8,18 @@ from telegram.ext import (
 )
 
 # db.py dan kerakli funksiyalarni import qilamiz
-from db import (
-    get_user_role, add_new_product, get_all_products, 
-    get_seller_by_password, update_seller_chat_id, add_new_seller,
-    get_all_sellers, get_all_seller_passwords, get_seller_password_by_id,
-    add_inventory, get_seller_debt_details, get_seller_id_by_chat_id
-) 
+# Agar ulanish xatosi bo'lsa, bu yerda ham print() yordamida log chiqaramiz.
+try:
+    from db import (
+        get_user_role, add_new_product, get_all_products, 
+        get_seller_by_password, update_seller_chat_id, add_new_seller,
+        get_all_sellers, get_all_seller_passwords, get_seller_password_by_id,
+        add_inventory, get_seller_debt_details, get_seller_id_by_chat_id
+    )
+except ImportError:
+    print("!!! XATO: db.py fayli topilmadi yoki ichidagi funksiyalar import qilinmadi.", file=sys.stderr)
+    sys.exit(1)
+
 
 # --- 1. Konfiguratsiya va Global Holatlar ---
 TOKEN = os.getenv("BOT_TOKEN")
@@ -42,33 +49,46 @@ def get_formatted_price(price: float) -> str:
 
 # /start buyrug'ini qayta ishlash
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Bu funksiya ishlaganini ko'rish uchun log
     chat_id = update.effective_chat.id
     
-    # 1. Admin tekshiruvi
-    if is_admin(chat_id):
-        role = 'admin'
-    else:
-        # 2. DB orqali sotuvchi rolini tekshirish (agar chat_id bazada bo'lsa)
-        role = get_user_role(chat_id)
+    print(f"🤖 /start buyrug'i qabul qilindi. Chat ID: {chat_id}") # <--- LOG 1
+    
+    try:
+        # 1. Admin tekshiruvi
+        if is_admin(chat_id):
+            role = 'admin'
+        else:
+            # 2. DB orqali sotuvchi rolini tekshirish
+            role = get_user_role(chat_id)
 
-    if role == 'admin':
-        keyboard = [[KeyboardButton("/mahsulot"), KeyboardButton("/sotuvchi")]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-        await update.message.reply_text('Assalomu alaykum, Admin! Asosiy boshqaruv buyruqlari:', reply_markup=reply_markup)
-        return ADMIN_MENU
-    
-    elif role == 'sotuvchi':
-        keyboard = [[KeyboardButton("Mahsulotlarim"), KeyboardButton("Qarzdorligim")]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-        await update.message.reply_text("Siz tizimga kirdingiz. O'zingizga kerakli bo'limni tanlang:", reply_markup=reply_markup)
-        return SELLER_MENU
-    
-    # 3. Ro'yxatdan o'tmagan foydalanuvchi
-    await update.message.reply_text(
-        "Assalomu alaykum. Iltimos, profilingizga kirish uchun maxsus parolingizni kiriting:",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return AWAITING_PASSWORD 
+        print(f"✅ Foydalanuvchi roli aniqlandi: {role}") # <--- LOG 2
+        
+        # 3. Mantiqiy yo'naltirish
+        if role == 'admin':
+            keyboard = [[KeyboardButton("/mahsulot"), KeyboardButton("/sotuvchi")]]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+            await update.message.reply_text('Assalomu alaykum, Admin! Asosiy boshqaruv buyruqlari:', reply_markup=reply_markup)
+            return ADMIN_MENU
+        
+        elif role == 'sotuvchi':
+            keyboard = [[KeyboardButton("Mahsulotlarim"), KeyboardButton("Qarzdorligim")]]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+            await update.message.reply_text("Siz tizimga kirdingiz. O'zingizga kerakli bo'limni tanlang:", reply_markup=reply_markup)
+            return SELLER_MENU
+        
+        # 4. Ro'yxatdan o'tmagan foydalanuvchi
+        await update.message.reply_text(
+            "Assalomu alaykum. Iltimos, profilingizga kirish uchun maxsus parolingizni kiriting:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return AWAITING_PASSWORD
+        
+    except Exception as e:
+        print(f"!!! KRITIK XATO start_command da: {e}", file=sys.stderr) # <--- KRITIK XATO LOG
+        await update.message.reply_text("Kechirasiz, tizimda ichki xato yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+        return ConversationHandler.END
+
 
 # Parolni Tekshirish Mantiqi
 async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -77,13 +97,12 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     seller_data = get_seller_by_password(password)
     
     if seller_data:
-        # Parol to'g'ri, chat_id ni DB ga yozamiz
         update_seller_chat_id(seller_data['id'], chat_id)
         await update.message.reply_text(
             f"Muvaffaqiyatli kirdingiz, {seller_data['ism']}! Endi /start buyrug'ini bosing.",
             reply_markup=ReplyKeyboardRemove()
         )
-        return ConversationHandler.END # Keyingi safar /start bosganda SELLER_MENU ga o'tadi
+        return ConversationHandler.END 
     else:
         await update.message.reply_text("Kiritilgan parol noto'g'ri. Iltimos, qayta urinib ko'ring.")
         return AWAITING_PASSWORD
@@ -113,7 +132,7 @@ async def get_new_product_price(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(f"Mahsulot kiritildi: **{product_name}** - {get_formatted_price(price)} so'm.", parse_mode='Markdown')
         else:
             await update.message.reply_text(f"Xatolik yuz berdi yoki '{product_name}' allaqachon mavjud.")
-        return await mahsulot_command(update, context) # Orqaga qaytamiz
+        return await mahsulot_command(update, context) 
     except ValueError:
         await update.message.reply_text("Narx noto'g'ri. Iltimos, faqat son kiriting.")
         return NEW_PRODUCT_PRICE
@@ -214,7 +233,7 @@ async def show_all_sellers(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 # Sotuvchilar parollarini chiqarish funksiyasi
 async def show_seller_passwords(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
-    passwords = get_all_seller_passwords() # db.py dan olingan funksiya
+    passwords = get_all_seller_passwords()
     if not passwords:
         text = "Bazada sotuvchilar mavjud emas."
     else:
@@ -233,16 +252,13 @@ async def show_seller_detail_menu(update: Update, context: ContextTypes.DEFAULT_
     seller_id_map = context.user_data.get('seller_names_to_id', {})
     selected_seller_id = seller_id_map.get(selected_seller_name)
     
-    # Faqat nom orqali tanlov qilingan bo'lsa, ID ni saqlaymiz
     if selected_seller_id:
         context.user_data['selected_seller_id'] = selected_seller_id
         context.user_data['selected_seller_name'] = selected_seller_name
     
-    # Agar bu funksiya tugma bosilganda (ya'ni, matn o'rniga), oldingi ma'lumotni ishlatish uchun
     selected_seller_name = context.user_data.get('selected_seller_name', 'Tanlanmagan Sotuvchi')
     
     if selected_seller_name == 'Tanlanmagan Sotuvchi':
-        # Agar admin o'zi matn yozsa yoki tanlov bo'lmasa
         await update.message.reply_text("Iltimos, avval ro'yxatdan sotuvchini tanlang.")
         return ADMIN_MENU
 
@@ -284,7 +300,6 @@ async def show_seller_password(update: Update, context: ContextTypes.DEFAULT_TYP
     return await show_seller_detail_menu(update, context) 
 
 # --- 7. Yangi Tovar Berish (Inventory) Mantiqi ---
-
 async def start_new_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
     
@@ -301,14 +316,12 @@ async def start_new_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ADMIN_MENU
 
     inline_keyboard = []
-    # Mahsulotlarni qatorlarga joylashtiramiz (2 tadan)
     for i in range(0, len(products), 2):
         row = []
         for product in products[i:i+2]:
              callback_data = f"prod:{product['id']}"
              row.append(InlineKeyboardButton(product['nomi'], callback_data=callback_data))
         inline_keyboard.append(row)
-
 
     reply_markup = InlineKeyboardMarkup(inline_keyboard)
     
@@ -370,7 +383,6 @@ async def finalize_inventory_count(update: Update, context: ContextTypes.DEFAULT
     return await show_seller_detail_menu(update, context) 
 
 # --- 8. Qarzdorlikni Ko'rsatish Mantiqi (Admin uchun) ---
-
 async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
     
@@ -405,7 +417,6 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
             text += item_text
             
-            # Xabarni qismlarga bo'lib yuborish
             if (i + 1) % chunk_size == 0 or (i + 1) == len(items):
                 await update.message.reply_text(text, parse_mode='Markdown')
                 text = "..." 
@@ -483,8 +494,8 @@ async def show_seller_products(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Ulanish va sozlash
 if not TOKEN:
-    print("XATO: BOT_TOKEN muhit o'zgaruvchisi topilmadi.")
-    exit(1)
+    print("!!! XATO: BOT_TOKEN muhit o'zgaruvchisi topilmadi.", file=sys.stderr)
+    sys.exit(1)
 
 application = Application.builder().token(TOKEN).build()
 
@@ -496,7 +507,7 @@ conv_handler = ConversationHandler(
         
         ADMIN_MENU: [
             CommandHandler("mahsulot", mahsulot_command),
-            # filters.Text orqali tugmalarni tekshirish
+            
             MessageHandler(filters.Text("Mahsulotlar"), show_all_products),
             MessageHandler(filters.Text("Yangi mahsulot kiritish"), new_product_start),
             
@@ -514,7 +525,6 @@ conv_handler = ConversationHandler(
             CommandHandler("sotuvchi_orqaga", sotuvchi_command),
             CommandHandler("sotuvchi_orqaga_detal", sellers_menu),
 
-            # Sotuvchi tanlanganidan keyin uning ismini MessageHandler orqali qabul qilish
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE,
                 show_seller_detail_menu
