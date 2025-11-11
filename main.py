@@ -135,8 +135,7 @@ async def show_all_products(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def sotuvchi_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
     keyboard = [
-        [KeyboardButton("Sotuvchilardagi Mahsulotlar"), KeyboardButton("Sotuvchilar")],
-        [KeyboardButton("Yangi Sotuvchi Qo'shish")]
+        [KeyboardButton("Sotuvchilar"), KeyboardButton("Yangi Sotuvchi Qo'shish")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text('Sotuvchilar bo\'limi:', reply_markup=reply_markup)
@@ -176,7 +175,8 @@ async def get_new_seller_password(update: Update, context: ContextTypes.DEFAULT_
 async def sellers_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
     keyboard = [
-        [KeyboardButton("Barcha Sotuvchilar"), KeyboardButton("Sotuvchilar Parollari")]
+        [KeyboardButton("Barcha Sotuvchilar"), KeyboardButton("Sotuvchilar Parollari")],
+        [KeyboardButton("/sotuvchi_orqaga")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text('Sotuvchilar Ro\'yxati Bo\'limi:', reply_markup=reply_markup)
@@ -233,27 +233,24 @@ async def show_seller_detail_menu(update: Update, context: ContextTypes.DEFAULT_
     seller_id_map = context.user_data.get('seller_names_to_id', {})
     selected_seller_id = seller_id_map.get(selected_seller_name)
     
-    if not selected_seller_id:
-        # Agar bu matn orqaga qaytish tugmasi bo'lsa, avtomatik ravishda boshqa handlerga o'tadi
-        # Agar admin o'zi biror nima yozsa, orqaga qaytish menyusini ko'rsatamiz
-        if update.message.text not in ["Sotuvchi Paroli", "Yangi Tovar Berish", "Mahsulotlar va Qarzdorlik"]:
-             await update.message.reply_text("Iltimos, avval ro'yxatdan sotuvchini tanlang.")
-             return ADMIN_MENU
-        # Agar menyu tugmalaridan biri bosilgan bo'lsa, context.user_data dan ID'ni ishlatishga uriniladi.
-
-    # Agar tanlov mavjud bo'lsa, kontekstga saqlaymiz
+    # Faqat nom orqali tanlov qilingan bo'lsa, ID ni saqlaymiz
     if selected_seller_id:
         context.user_data['selected_seller_id'] = selected_seller_id
         context.user_data['selected_seller_name'] = selected_seller_name
-    # ID topilmasa, lekin menyu tugmasi bosilsa (masalan, sotuvchini tanlab bo'lgandan keyin),
-    # oldingi ma'lumotdan foydalanishga harakat qilamiz
+    
+    # Agar bu funksiya tugma bosilganda (ya'ni, matn o'rniga), oldingi ma'lumotni ishlatish uchun
     selected_seller_name = context.user_data.get('selected_seller_name', 'Tanlanmagan Sotuvchi')
+    
+    if selected_seller_name == 'Tanlanmagan Sotuvchi':
+        # Agar admin o'zi matn yozsa yoki tanlov bo'lmasa
+        await update.message.reply_text("Iltimos, avval ro'yxatdan sotuvchini tanlang.")
+        return ADMIN_MENU
 
     keyboard = [
         [KeyboardButton("Mahsulotlar va Qarzdorlik"), KeyboardButton("Yangi Tovar Berish")],
-        [KeyboardButton("Sotuvchi Paroli")]
+        [KeyboardButton("Sotuvchi Paroli")],
+        [KeyboardButton("/sotuvchi_orqaga_detal")] 
     ]
-    keyboard.append([KeyboardButton("/sotuvchi_orqaga_detal")]) 
 
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     
@@ -550,12 +547,7 @@ conv_handler = ConversationHandler(
 application.add_handler(conv_handler)
 
 def main() -> None:
-    # Bu funksiya server.py da import qilingan. 
-    # Telegram botni ishga tushirish uchun u Dispatcher ni ishlatishi shart emas,
-    # chunki Webhook orqali qabul qilingan Update'lar queue ga joylanadi.
     print("Bot logikasi yuklandi.")
 
 if __name__ == "__main__":
     main()
-    # Agar bu lokalda ishga tushirilsa, quyidagi qism kerak bo'ladi (lekin Render.com uchun server.py boshqaradi):
-    # application.run_polling(poll_interval=3)
