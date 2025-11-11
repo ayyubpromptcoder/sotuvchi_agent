@@ -1,0 +1,6 @@
+# requirements.txt
+python-telegram-bot==20.8
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+uvicorn==0.27.0.post1 
+fastapi==0.109.0 # Webhookni boshqarish uchun engil kutubxona
