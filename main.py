@@ -555,20 +555,21 @@ application.add_handler(conv_handler)
 
 # main.py ichidagi def main() funksiyasi
 
+# main.py ning eng pastki qismidagi 'main' funksiyasi
+
 def main() -> None:
-    """Botni Webhook rejimida Render.com uchun ishga tushirish."""
-    
+    # ...
     PORT = int(os.environ.get('PORT', 10000)) 
     HOST_URL = os.environ.get('RENDER_EXTERNAL_URL')
     
     if not HOST_URL:
-        print("!!! KRITIK XATO: RENDER_EXTERNAL_URL muhit o'zgaruvchisi topilmadi. Webhook ishga tushmaydi.", file=sys.stderr)
+        # ...
         return
 
-    # >>>>> BU YERDA O'ZGARTIRISH KIRITAMIZ:
+    # >>>>> ENG KRITIK O'ZGARTIRISH: WEBHOOKNI ILDIZGA O'RNATAMIZ
     # -----------------------------------------------------
-    WEBHOOK_PATH = f"/webhook/"  # TOKENsiz qisqa yo'l
-    WEBHOOK_URL = HOST_URL + WEBHOOK_PATH
+    WEBHOOK_PATH = "/"  # Ildiz yo'l (Slash)
+    WEBHOOK_URL = HOST_URL
     # -----------------------------------------------------
     
     print(f"🚀 [INIT] Webhook ishga tushirilmoqda. Host URL: {HOST_URL}. Port: {PORT}")
@@ -578,7 +579,7 @@ def main() -> None:
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=WEBHOOK_PATH, 
+        url_path=WEBHOOK_PATH, # Endi faqat / ga javob beradi
         webhook_url=WEBHOOK_URL,      
     )
 
