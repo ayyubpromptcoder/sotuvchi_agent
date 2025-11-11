@@ -14,7 +14,7 @@ logger = getLogger("server")
 
 # main.py dan Application va main funksiyalarini import qilamiz
 try:
-    # application obyektining main.py da GLOBAL darajada e'lon qilinganligi muhim!
+    # main.py da 'application' obyektining GLOBAL e'lon qilinganligi muhim!
     from main import main, application 
 except ImportError as e:
     logger.error(f"!!! KRITIK XATO: main.py fayli topilmadi yoki import qilinmadi: {e}")
@@ -22,7 +22,7 @@ except ImportError as e:
 
 # --- Konfiguratsiya ---
 HOST = '0.0.0.0'
-# Render talab qiladigan portni muhit o'zgaruvchisidan olish
+# Render talab qiladigan port
 PORT = int(os.getenv("PORT", 10000)) 
 
 # --- Global O'zgaruvchilar ---
@@ -41,10 +41,8 @@ def start_bot_loop():
     
     logger.info("🤖 [POLLING THREAD] Bot Polling ishga tushirilmoqda.")
     
-    # main() koroutinni loopda ishga tushiramiz
     try:
-        # main() funksiyasini syncron tarzda ishga tushirish (Long Polling)
-        # Bu funksiya Bot to'xtatilmaguncha bloklaydi.
+        # main() koroutinni ishga tushirish (Long Polling)
         bot_loop.run_until_complete(main())
     except asyncio.CancelledError:
         logger.warning("Bot jarayoni bekor qilindi (Cancelled).")
@@ -55,25 +53,24 @@ def start_bot_loop():
 def stop_all(signum=None, frame=None):
     """
     SIGTERM signali kelganda serverni va Bot Loopni xavfsiz to'xtatadi.
-    Bu kod Cannot close a running event loop xatosini hal qilish uchun
-    PTB Application.stop() usulini qo'llaydi.
+    Loopni to'xtatish xatosini oldini olish uchun qo'shimcha tekshiruvlar qo'shildi.
     """
     global httpd, bot_thread, bot_loop, application
     logger.warning("⚠️ SIGTERM signali qabul qilindi. Jarayonlar to'xtatilmoqda...")
     
-    # 1. HTTP serverni to'xtatish (httpd.shutdown alohida threadda chaqiriladi)
+    # 1. HTTP serverni to'xtatish
     if httpd:
         logger.info("Health Check Serveri o'chirilmoqda...")
         threading.Thread(target=httpd.shutdown).start()
         
     # 2. Botning Event Loop'ini xavfsiz to'xtatish
-    if bot_loop and bot_loop.is_running():
-        logger.info("Botning Asyncio Loop'i yopilmoqda...")
+    if bot_loop and bot_loop.is_running(): # !!! QAT'IY TEKSHIRUV !!!
+        logger.info("Botning Asyncio Loop'i va PTB Application yopilmoqda...")
         
         async def shutdown_ptb():
             """Asinxron ravishda PTB ni yopish."""
             logger.info("PTB Application.stop() chaqirilmoqda...")
-            await application.stop() # PTB ni xavfsiz yopish uchun asosiy usul
+            await application.stop() 
             
         try:
             # Asinxron to'xtatishni bot_loop orqali chaqirish
@@ -89,17 +86,19 @@ def stop_all(signum=None, frame=None):
             logger.error(f"PTBni yopishda kutilmagan xato: {e}")
 
         # Loopni to'liq tozalash va to'xtatish signali yuborish
-        # Qolgan barcha vazifalarni (Polling) bekor qilish
         for task in asyncio.all_tasks(bot_loop):
             task.cancel()
         
         # Loop to'xtatish signali yuborish (Thread-xavfsiz)
-        if bot_loop.is_running():
-            bot_loop.call_soon_threadsafe(bot_loop.stop)
+        if bot_loop.is_running(): # Yana bir marta ishonch hosil qilish
+             bot_loop.call_soon_threadsafe(bot_loop.stop)
             
-        # Bot Threadni asosiy threadda to'xtatish uchun qisqa vaqt berish
+        # Bot Threadni asosiy threadda to'xtatish
         if bot_thread and bot_thread.is_alive():
              bot_thread.join(timeout=1)
+        
+    else:
+        logger.warning("Bot Loop ishlamayotgan edi yoki hali boshlanmagan. To'xtatish o'tkazib yuborildi.")
         
     # Asosiy jarayonni tugatish
     logger.info("Render jarayoni yakunlanmoqda.")
@@ -124,7 +123,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         else:
             self._send_response(404)
 
-    # !!! do_HEAD qo'shildi (501 Unsupported method xatosini hal qilish uchun) !!!
+    # do_HEAD qo'shildi (501 Unsupported method xatosini hal qilish uchun)
     def do_HEAD(self):
         if self.path == '/health':
             self.send_response(200)
@@ -134,31 +133,18 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             
-    # Agar loglar o'ta ko'p bo'lsa, bu funksiyani bo'sh qoldirish mumkin.
+    # Agar loglar o'ta ko'p bo'lsa, bu funksiyani o'chirib qo'yamiz
     def log_message(self, format, *args):
         return
-
-
-def start_http_server():
-    """Health Check serverni boshlash (Asosiy Threadda)."""
-    global httpd
-    
-    # SIGTERM (15) va SIGINT (Ctrl+C) signallarini stop_all funksiyasiga ulash
-    signal.signal(signal.SIGTERM, stop_all)
-    signal.signal(signal.SIGINT, stop_all)
-
-    try:
-        httpd = HTTPServer((HOST, PORT), HealthCheckHandler)
-        logger.info(f"🚀 Health Check Server {HOST}:{PORT} portida ishga tushdi (Asosiy Thread).")
-        # serve_forever() bu threadni bloklaydi, to'xtatish uchun httpd.shutdown() kerak
-        httpd.serve_forever() 
-    except Exception as e:
-        logger.error(f"!!! KRITIK Xato (HTTP Server): {e}")
 
 
 # --- Ishga Tushirish Mantiqi ---
 
 if __name__ == '__main__':
+    # SIGTERM (15) va SIGINT (Ctrl+C) signallarini stop_all funksiyasiga ulash
+    signal.signal(signal.SIGTERM, stop_all)
+    signal.signal(signal.SIGINT, stop_all)
+
     # 1. Botni alohida Threadda boshlash (Asinxron operatsiyalar uchun)
     bot_thread = threading.Thread(target=start_bot_loop, name="BotPollingThread")
     bot_thread.start()
@@ -167,8 +153,14 @@ if __name__ == '__main__':
     time.sleep(1)
 
     # 2. Asosiy Threadda Health Check serverni boshlash (Bloklovchi)
-    start_http_server()
-    
-    # Agar bu nuqtaga kelsa (HTTP server to'xtatilsa), bot threadni tozalaymiz
+    try:
+        httpd = HTTPServer((HOST, PORT), HealthCheckHandler)
+        logger.info(f"🚀 Health Check Server {HOST}:{PORT} portida ishga tushdi (Asosiy Thread).")
+        # serve_forever() bu threadni bloklaydi
+        httpd.serve_forever() 
+    except Exception as e:
+        logger.error(f"!!! KRITIK Xato (HTTP Server): {e}")
+
+    # Agar bu nuqtaga kelsa (Server tugasa), bot threadni tozalaymiz
     if bot_thread and bot_thread.is_alive():
         bot_thread.join()
