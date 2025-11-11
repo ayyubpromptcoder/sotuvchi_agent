@@ -553,6 +553,8 @@ conv_handler = ConversationHandler(
 
 application.add_handler(conv_handler)
 
+# main.py ichidagi def main() funksiyasi
+
 def main() -> None:
     """Botni Webhook rejimida Render.com uchun ishga tushirish."""
     
@@ -563,12 +565,16 @@ def main() -> None:
         print("!!! KRITIK XATO: RENDER_EXTERNAL_URL muhit o'zgaruvchisi topilmadi. Webhook ishga tushmaydi.", file=sys.stderr)
         return
 
-    WEBHOOK_PATH = f"/webhook/{TOKEN}"
+    # >>>>> BU YERDA O'ZGARTIRISH KIRITAMIZ:
+    # -----------------------------------------------------
+    WEBHOOK_PATH = f"/webhook/"  # TOKENsiz qisqa yo'l
     WEBHOOK_URL = HOST_URL + WEBHOOK_PATH
+    # -----------------------------------------------------
     
     print(f"🚀 [INIT] Webhook ishga tushirilmoqda. Host URL: {HOST_URL}. Port: {PORT}")
+    print(f"✅ [INIT] Webhook PATH: {WEBHOOK_PATH}") # Debug uchun yangi log
     
-    # Webhook ishga tushirish
+    # Webhook ishga tushirish (url_path ham WEBHOOK_PATH ga o'zgardi)
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
