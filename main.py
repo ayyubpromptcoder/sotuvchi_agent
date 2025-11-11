@@ -1,8 +1,7 @@
-# main.py - To'liq va To'g'ri Versiya
-
 import os
 import sys
-# Threadpool importini olib tashlaymiz, chunki PTB uni avtomatik boshqaradi.
+import asyncio # !!! YANGI: Kutish funksiyasi uchun import qilindi !!!
+
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, 
@@ -10,7 +9,6 @@ from telegram.ext import (
 )
 
 # db.py dan kerakli funksiyalarni import qilamiz
-# Eslatma: 'db' dan import qilishda sinxron DB chaqiruvlari PTB tomonidan threadpoolga yuboriladi.
 try:
     from db import (
         create_tables, get_user_role, add_new_product, get_all_products, 
@@ -29,8 +27,6 @@ TOKEN = os.getenv("BOT_TOKEN")
 # DB ni majburan yaratish/tekshirish (Server ishga tushganda)
 try:
     print("🚀 [INIT] Baza jadvallarini yaratish/tekshirish boshlanmoqda...")
-    # Eslatma: Agar create_tables sinxron bo'lsa, u bloklaydi.
-    # Lekin biz uni server ishga tushishidan oldin chaqiramiz, muammo yo'q.
     create_tables()
     print("✅ [INIT] Baza jadvallari tayyor.")
 except Exception as e:
@@ -57,13 +53,12 @@ def get_formatted_price(price: float) -> str:
 
 # --- 3. Buyruqlar (Handlers) ---
 
-# /start buyrug'i (DB chaqiruvini optimallashtirish shart emas, chunki PTB uni avtomatik threadpoolga yuboradi)
+# /start buyrug'i
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_id = update.effective_chat.id
     
     print(f"🤖 [1/6] /start buyrug'i qabul qilindi. Chat ID: {chat_id}.") 
     
-    # Zudlik bilan tezkor javob (Long Pollingda bu shart emas, lekin qoldiramiz)
     await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Roli tekshirilmoqda...") 
         
     try:
@@ -71,7 +66,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if is_admin(chat_id):
             role = 'admin'
         else:
-            # get_user_role sinxron bo'lgani uchun, PTB uni avtomatik threadpoolda bajaradi.
             role = get_user_role(chat_id)
 
         print(f"✅ [5/6] Foydalanuvchi roli aniqlandi: {role}")
@@ -100,8 +94,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text(f"Tizimda ichki xato yuz berdi. Iltimos, keyinroq urinib ko'ring.")
         return ConversationHandler.END
 
-
-# --- Barcha boshqa Handlers (O'zgartirishsiz qoldiriladi) ---
 
 # Parolni Tekshirish Mantiqi
 async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -571,8 +563,11 @@ async def main() -> None:
     # Webhookni to'liq o'chirib tashlaymiz
     await application.bot.delete_webhook()
     print("✅ Telegram Webhook o'chirildi.")
+    
+    # !!! YECHIM: Loopni yopish xatosini hal qilish uchun 1 soniya kutamiz !!!
+    await asyncio.sleep(1) 
+    
     # Botni Long Polling rejimida ishga tushirish
-    # !!! Render/Threadpool muammosini hal qilish uchun ASOSIY O'ZGARTIRISH !!!
     await application.run_polling(poll_interval=1, timeout=30, stop_signals=None)
 
 # main.py endi o'zi ishga tushmaydi, balki server.py orqali ishga tushadi
