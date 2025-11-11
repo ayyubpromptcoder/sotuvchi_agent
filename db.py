@@ -9,22 +9,26 @@ DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
 
 # --- 1. DB Ulanish Funksiyasi ---
 def get_db_connection():
-    """PostgreSQL bazasiga ulanish obyektini qaytaradi."""
+    """PostgreSQL bazasiga ulanish obyektini qaytaradi (Xatolarni loglarga chiqaradi)."""
     if not DATABASE_URL:
-        print("XATO: DATABASE_URL o'rnatilmagan.")
+        print("!!! XATO: DATABASE_URL muhit o'zgaruvchisi o'rnatilmagan.")
         return None
     try:
         conn = psycopg2.connect(DATABASE_URL)
+        # print("✅ DB Ulanish muvaffaqiyatli.") # Logni kamaytirish uchun olib tashladik
         return conn
     except Exception as e:
-        print(f"Databasega ulanishda xato: {e}")
+        # Xatoni aniqroq qilib loglarga chiqaramiz
+        print(f"❌ DATABASE XATOSI: PostgreSQLga ulanishda kutilmagan xato: {e}") 
         return None
 
 # --- 2. Baza Tuzilmalarini Yaratish ---
 def create_tables():
     """Loyiha uchun kerakli barcha jadvallarni (tables) yaratadi."""
     conn = get_db_connection()
-    if not conn: return
+    if not conn: 
+        print("❌ Jadvallarni yaratish mumkin emas: DB ulanish xatosi.")
+        return
 
     cur = conn.cursor()
     try:
@@ -54,7 +58,7 @@ def create_tables():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS inventory (
                 id SERIAL PRIMARY KEY,
-                seller_id INTEGER REFERENCES sellers(id),
+                seller_id INTEGER REFERENCES sellers(id) ON DELETE CASCADE,
                 product_id INTEGER REFERENCES products(id),
                 soni INTEGER NOT NULL,
                 jami_narxi NUMERIC(10, 2) NOT NULL,
@@ -63,9 +67,9 @@ def create_tables():
         """)
 
         conn.commit()
-        print("PostgreSQL jadvallari yaratildi yoki allaqachon mavjud.")
+        print("✅ PostgreSQL jadvallari yaratildi yoki allaqachon mavjud.")
     except Exception as e:
-        print(f"Jadvallarni yaratishda xato: {e}")
+        print(f"❌ Jadvallarni yaratishda xato: {e}")
     finally:
         cur.close()
         conn.close()
@@ -82,7 +86,7 @@ def get_user_role(chat_id: int) -> str:
         result = cur.fetchone()
         return result[0] if result else 'none'
     except Exception as e:
-        print(f"Rolni olishda xato: {e}")
+        print(f"❌ Rolni olishda xato: {e}")
         return 'none'
     finally:
         cur.close()
@@ -98,7 +102,7 @@ def get_seller_id_by_chat_id(chat_id: int) -> Optional[int]:
         result = cur.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Sotuvchi ID'sini olishda xato: {e}")
+        print(f"❌ Sotuvchi ID'sini olishda xato: {e}")
         return None
     finally:
         cur.close()
@@ -112,7 +116,6 @@ def add_new_product(product_name: str, price: float) -> bool:
     if not conn: return False
     cur = conn.cursor()
     try:
-        # ON CONFLICT DO NOTHING - Bu mahsulot nomi takrorlansa, xatolik berishdan saqlaydi.
         cur.execute(
             "INSERT INTO products (mahsulot_nomi, narxi) VALUES (%s, %s) ON CONFLICT (mahsulot_nomi) DO NOTHING;",
             (product_name, price)
@@ -120,7 +123,7 @@ def add_new_product(product_name: str, price: float) -> bool:
         conn.commit()
         return cur.rowcount > 0
     except Exception as e:
-        print(f"Mahsulot kiritishda xato: {e}")
+        print(f"❌ Mahsulot kiritishda xato: {e}")
         return False
     finally:
         cur.close()
@@ -141,7 +144,7 @@ def get_all_products() -> List[Dict]:
             products.append({'id': id, 'nomi': name, 'narxi': float(price)})
         return products
     except Exception as e:
-        print(f"Mahsulotlarni olishda xato: {e}")
+        print(f"❌ Mahsulotlarni olishda xato: {e}")
         return []
     finally:
         cur.close()
@@ -162,10 +165,10 @@ def add_new_seller(ism: str, mahalla: str, telefon: str, parol: str) -> bool:
         conn.commit()
         return True
     except psycopg2.errors.UniqueViolation:
-        print("Xato: Parol allaqachon mavjud.")
+        print("❌ Xato: Parol allaqachon mavjud.")
         return False
     except Exception as e:
-        print(f"Sotuvchi kiritishda xato: {e}")
+        print(f"❌ Sotuvchi kiritishda xato: {e}")
         return False
     finally:
         cur.close()
@@ -185,7 +188,7 @@ def get_seller_by_password(password: str) -> Optional[Dict]:
             return {'id': seller_data[0], 'ism': seller_data[1], 'chat_id': seller_data[2], 'parol': seller_data[3]}
         return None
     except Exception as e:
-        print(f"Parol tekshiruvida xato: {e}")
+        print(f"❌ Parol tekshiruvida xato: {e}")
         return None
     finally:
         cur.close()
@@ -204,7 +207,7 @@ def update_seller_chat_id(seller_id: int, chat_id: int) -> bool:
         conn.commit()
         return cur.rowcount > 0
     except Exception as e:
-        print(f"Chat ID yangilanishida xato: {e}")
+        print(f"❌ Chat ID yangilanishida xato: {e}")
         return False
     finally:
         cur.close()
@@ -230,7 +233,7 @@ def get_all_sellers() -> List[Dict]:
             })
         return sellers
     except Exception as e:
-        print(f"Sotuvchilarni olishda xato: {e}")
+        print(f"❌ Sotuvchilarni olishda xato: {e}")
         return []
     finally:
         cur.close()
@@ -251,7 +254,7 @@ def get_all_seller_passwords() -> List[Dict]:
             passwords.append({'ism': ism, 'parol': parol})
         return passwords
     except Exception as e:
-        print(f"Sotuvchi parollarini olishda xato: {e}")
+        print(f"❌ Sotuvchi parollarini olishda xato: {e}")
         return []
     finally:
         cur.close()
@@ -269,7 +272,7 @@ def get_seller_password_by_id(seller_id: int) -> Optional[str]:
         result = cur.fetchone()
         return result[0] if result else None
     except Exception as e:
-        print(f"Parolni olishda xato: {e}")
+        print(f"❌ Parolni olishda xato: {e}")
         return None
     finally:
         cur.close()
@@ -306,7 +309,7 @@ def add_inventory(seller_id: int, product_id: int, count: int) -> Tuple[bool, st
         conn.commit()
         return True, product_name, total_price
     except Exception as e:
-        print(f"Inventory kiritishda xato: {e}")
+        print(f"❌ Inventory kiritishda xato: {e}")
         return False, str(e), 0.0
     finally:
         cur.close()
@@ -362,12 +365,8 @@ def get_seller_debt_details(seller_id: int) -> Tuple[float, List[Dict]]:
         return total_debt, inventory_items
         
     except Exception as e:
-        print(f"Qarzdorlikni olishda xato: {e}")
+        print(f"❌ Qarzdorlikni olishda xato: {e}")
         return 0.0, []
     finally:
         cur.close()
         conn.close()
-
-if __name__ == '__main__':
-    # Faylni to'g'ridan-to'g'ri ishga tushirganda jadvallarni yaratadi
-    create_tables()
