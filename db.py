@@ -10,7 +10,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     print("!!! KRITIK XATO: DATABASE_URL muhit o'zgaruvchisi topilmadi.", file=sys.stderr)
-    # sys.exit(1) # Renderda bu botni butunlay to'xtatishi mumkin, shuning uchun kommentariyada qoldiramiz
 
 # --- DB Ulanish Funksiyasi ---
 def get_db_connection():
@@ -33,7 +32,6 @@ def create_tables():
     try:
         cursor = conn.cursor()
         
-        # 1. products
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id SERIAL PRIMARY KEY,
@@ -42,7 +40,6 @@ def create_tables():
             );
         """)
         
-        # 2. sellers
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sellers (
                 id SERIAL PRIMARY KEY,
@@ -54,7 +51,6 @@ def create_tables():
             );
         """)
 
-        # 3. inventory
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inventory (
                 id SERIAL PRIMARY KEY,
@@ -67,45 +63,35 @@ def create_tables():
         """)
 
         conn.commit()
+        print("DB Log: Jadvallar yaratildi/tekshirildi.")
     except Exception as e:
         print(f"!!! KRITIK XATO (DB): Jadvallarni yaratishda xato: {e}", file=sys.stderr)
         conn.rollback()
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
-# --- Funksiyalar (Sotuvchilar/Rollar) ---
+# --- Rol va Sotuvchilar Funksiyalari ---
 
 def get_user_role(chat_id: int) -> str:
-    """Foydalanuvchining chat_id orqali sotuvchi ekanligini tekshiradi."""
     conn = None
     try:
         conn = get_db_connection()
-        if not conn:
-            print(f"DB Log: Ulanish yo'q. get_user_role xato", file=sys.stderr)
-            return 'not_registered'
-
+        if not conn: return 'not_registered'
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("SELECT ism FROM sellers WHERE chat_id = %s", (chat_id,))
         seller = cursor.fetchone()
-
-        print(f"DB Log: Rol so'rovi bajarildi. Chat ID: {chat_id}, Natija: {seller}")
         
-        if seller:
-            return 'sotuvchi'
-        else:
-            return 'not_registered'
+        print(f"DB Log: Rol so'rovi. Chat ID: {chat_id}, Natija: {seller}")
+        
+        if seller: return 'sotuvchi'
+        else: return 'not_registered'
             
     except Exception as e:
-        print(f"!!! KRITIK XATO (DB): get_user_role funksiyasida xato: {e}", file=sys.stderr)
+        print(f"!!! KRITIK XATO (DB): get_user_role: {e}", file=sys.stderr)
         return 'not_registered' 
-
     finally:
         if conn: conn.close()
         
-# Qolgan barcha db funksiyalari (get_seller_by_password, update_seller_chat_id, add_new_product, get_all_products, va boshqalar...)
-# Avvalgi versiyadagi barcha boshqa funksiyalarni bu yerga qo'shish kerak.
-
 def get_seller_by_password(password: str) -> dict or None:
     conn = get_db_connection()
     if not conn: return None
@@ -145,37 +131,6 @@ def get_seller_id_by_chat_id(chat_id: int) -> int or None:
     except Exception as e:
         print(f"DB Xato: get_seller_id_by_chat_id: {e}", file=sys.stderr)
         return None
-    finally:
-        if conn: conn.close()
-
-def add_new_product(nomi: str, narxi: float) -> bool:
-    conn = get_db_connection()
-    if not conn: return False
-    try:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO products (nomi, narxi) VALUES (%s, %s)", (nomi, narxi))
-        conn.commit()
-        return True
-    except psycopg2.IntegrityError:
-        conn.rollback()
-        return False
-    except Exception as e:
-        print(f"DB Xato: add_new_product: {e}", file=sys.stderr)
-        conn.rollback()
-        return False
-    finally:
-        if conn: conn.close()
-
-def get_all_products() -> list:
-    conn = get_db_connection()
-    if not conn: return []
-    try:
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT id, nomi, narxi FROM products ORDER BY nomi")
-        return cursor.fetchall()
-    except Exception as e:
-        print(f"DB Xato: get_all_products: {e}", file=sys.stderr)
-        return []
     finally:
         if conn: conn.close()
 
@@ -239,6 +194,39 @@ def get_seller_password_by_id(seller_id: int) -> str or None:
         return None
     finally:
         if conn: conn.close()
+        
+# --- Mahsulot va Inventar Funksiyalari ---
+
+def add_new_product(nomi: str, narxi: float) -> bool:
+    conn = get_db_connection()
+    if not conn: return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO products (nomi, narxi) VALUES (%s, %s)", (nomi, narxi))
+        conn.commit()
+        return True
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        return False
+    except Exception as e:
+        print(f"DB Xato: add_new_product: {e}", file=sys.stderr)
+        conn.rollback()
+        return False
+    finally:
+        if conn: conn.close()
+
+def get_all_products() -> list:
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT id, nomi, narxi FROM products ORDER BY nomi")
+        return cursor.fetchall()
+    except Exception as e:
+        print(f"DB Xato: get_all_products: {e}", file=sys.stderr)
+        return []
+    finally:
+        if conn: conn.close()
 
 def add_inventory(seller_id: int, product_id: int, count: int) -> tuple[bool, str, float]:
     conn = get_db_connection()
@@ -249,8 +237,7 @@ def add_inventory(seller_id: int, product_id: int, count: int) -> tuple[bool, st
         cursor.execute("SELECT nomi, narxi FROM products WHERE id = %s", (product_id,))
         product_data = cursor.fetchone()
         
-        if not product_data:
-            return False, "Mahsulot bazada topilmadi", 0.0
+        if not product_data: return False, "Mahsulot bazada topilmadi", 0.0
             
         product_name = product_data['nomi']
         unit_price = float(product_data['narxi'])
@@ -299,4 +286,4 @@ def get_seller_debt_details(seller_id: int) -> tuple[float, list]:
         if conn: conn.close()
 
 if __name__ == '__main__':
-    create_tables()
+    print("DB Fayli yuklandi.")
