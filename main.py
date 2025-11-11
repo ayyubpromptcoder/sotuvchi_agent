@@ -10,6 +10,7 @@ from telegram.ext import (
 # db.py dan kerakli funksiyalarni import qilamiz
 try:
     from db import (
+        create_tables, # Majburiy tekshiruv uchun qo'shildi
         get_user_role, add_new_product, get_all_products, 
         get_seller_by_password, update_seller_chat_id, add_new_seller,
         get_all_sellers, get_all_seller_passwords, get_seller_password_by_id,
@@ -17,13 +18,21 @@ try:
     )
 except ImportError:
     print("!!! KRITIK XATO: db.py fayli topilmadi yoki import qilinmadi.", file=sys.stderr)
-    # db.py muammo bo'lsa, botni to'xtatish
     sys.exit(1)
 
 
 # --- 1. Konfiguratsiya va Global Holatlar ---
 TOKEN = os.getenv("BOT_TOKEN")
-# ADMIN_IDS ni muhit o'zgaruvchisidan o'qish va listga aylantirish.
+
+# *** KRITIK TEKSHIRUV: DB ni majburan yaratish/tekshirish (Server ishga tushganda) ***
+try:
+    print("🚀 [INIT] Baza jadvallarini yaratish/tekshirish boshlanmoqda...")
+    create_tables()
+    print("✅ [INIT] Baza jadvallari tayyor.")
+except Exception as e:
+    print(f"!!! KRITIK XATO (INIT): Baza jadvallarini yaratish/tekshirishda xato: {e}", file=sys.stderr)
+    # Agar bu xato yuz bersa, ehtimol DATABASE_URL noto'g'ri. Bot ishlashini davom ettiradi.
+
 ADMIN_IDS = [int(i.strip()) for i in os.getenv("ADMIN_IDS", "").split(',') if i.strip()]
 
 # Holatlar (ConversationHandler uchun)
@@ -58,7 +67,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     try:
         await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Roli tekshirilmoqda...") 
     except Exception as e:
-        print(f"!!! DIQQAT: Telegramga tezkor javob yuborishda xato: {e}", file=sys.stderr)
+        print(f"!!! DIQQAT: Telegramga tezkor javob yuborishda xato (Botdan xabar chiqmagan): {e}", file=sys.stderr)
         # Agar bu yerda xato bo'lsa, davom etamiz, lekin logikani kuzatish qiyinlashadi.
 
     try:
@@ -104,7 +113,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         error_message = f"!!! KRITIK XATO start_command da: {e}."
         print(error_message, file=sys.stderr) 
         
-        await update.message.reply_text(f"Tizimda ichki xato yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+        await update.message.reply_text(f"Tizimda ichki xato yuz berdi. Iltimos, keyinroq urinib ko'ring. Xato: {e}")
         return ConversationHandler.END
 
 
@@ -130,7 +139,7 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Kiritilgan parol noto'g'ri. Iltimos, qayta urinib ko'ring.")
         return AWAITING_PASSWORD
 
-# --- Qolgan barcha funksiyalar (oldin yozilgan, to'g'ri ishlashi kerak) ---
+# --- Qolgan barcha funksiyalar (oldin yozilgan va debug qilingan) ---
 
 async def mahsulot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not is_admin(update.effective_chat.id): return ConversationHandler.END
@@ -412,7 +421,7 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     formatted_debt = get_formatted_price(total_debt)
     
-    text = f"💰 **{selected_seller_name}** uchun qarzdorlik hisoboti:**\n\n"
+    text = f"💰 **{selected_seller_name}** uchun qarzdorlik hisoboti:\n\n"
     text += f"**💳 JAMI QARZDORLIK: {formatted_debt} so'm**\n"
     text += "--------------------------------------\n"
     
@@ -440,6 +449,7 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
          await update.message.reply_text(text, parse_mode='Markdown')
 
     return await show_seller_detail_menu(update, context)
+
 
 async def show_my_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_id = update.effective_chat.id
@@ -502,9 +512,8 @@ async def show_seller_products(update: Update, context: ContextTypes.DEFAULT_TYP
 
     return SELLER_MENU 
 
-# --- 10. Botni ishga tushirish ---
+# --- 4. Botni ishga tushirish (Konfiguratsiya) ---
 
-# Ulanish va sozlash
 if not TOKEN:
     print("!!! KRITIK XATO: BOT_TOKEN muhit o'zgaruvchisi topilmadi.", file=sys.stderr)
     sys.exit(1)
