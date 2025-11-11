@@ -1,6 +1,6 @@
 import os
 import sys
-import asyncio # !!! YANGI: Kutish funksiyasi uchun import qilindi !!!
+import asyncio
 
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -49,6 +49,7 @@ def is_admin(chat_id: int) -> bool:
     return chat_id in ADMIN_IDS
 
 def get_formatted_price(price: float) -> str:
+    # 1234567.89 -> 1 234 568
     return f"{float(price):,.0f}".replace(",", " ") 
 
 # --- 3. Buyruqlar (Handlers) ---
@@ -416,9 +417,9 @@ async def show_seller_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         for item in items:
             all_item_texts.append(
                 f"▪️ **{item['mahsulot_nomi']}**\n"
-                f"   Soni: {item['soni']} dona\n"
-                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
-                f"   Sana: {item['sana']}\n"
+                f"   Soni: {item['soni']} dona\n"
+                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
+                f"   Sana: {item['sana']}\n"
             )
         
         # Jami qarzdorlik hisoboti
@@ -461,9 +462,9 @@ async def show_my_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         for item in items:
             all_item_texts.append(
                 f"▪️ **{item['mahsulot_nomi']}**\n"
-                f"   Soni: {item['soni']} dona\n"
-                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
-                f"   Sana: {item['sana']}\n"
+                f"   Soni: {item['soni']} dona\n"
+                f"   Narxi: {get_formatted_price(item['jami_narxi'])} so'm\n"
+                f"   Sana: {item['sana']}\n"
             )
         
         # Jami qarzdorlik hisoboti
@@ -493,6 +494,7 @@ if not TOKEN:
     print("!!! KRITIK XATO: BOT_TOKEN muhit o'zgaruvchisi topilmadi.", file=sys.stderr)
     sys.exit(1)
 
+# !!! application Obyektini GLOBAL darajada saqlaymiz !!!
 application = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
 # Konversiya Handlerni yaratish (O'zgartirishsiz)
@@ -564,11 +566,9 @@ async def main() -> None:
     await application.bot.delete_webhook()
     print("✅ Telegram Webhook o'chirildi.")
     
-    # !!! YECHIM: Loopni yopish xatosini hal qilish uchun 1 soniya kutamiz !!!
-    await asyncio.sleep(1) 
+    # !!! MUHIM O'ZGARTIRISH: Loopni yopish xatosini keltirib chiqarishi mumkin bo'lgan
+    # await asyncio.sleep(1) funksiyasi olib tashlandi.
     
     # Botni Long Polling rejimida ishga tushirish
+    # stop_signals=None Render SIGTERM ni qo'lda ushlashimiz uchun
     await application.run_polling(poll_interval=1, timeout=30, stop_signals=None)
-
-# main.py endi o'zi ishga tushmaydi, balki server.py orqali ishga tushadi
-# if __name__ == "__main__": blokini to'liq o'chirib tashladik.
