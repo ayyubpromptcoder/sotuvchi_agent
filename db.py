@@ -81,8 +81,6 @@ def get_user_role(chat_id: int) -> str:
         cursor.execute("SELECT ism FROM sellers WHERE chat_id = %s", (chat_id,))
         seller = cursor.fetchone()
         
-        print(f"DB Log: Rol so'rovi. Chat ID: {chat_id}, Natija: {seller}")
-        
         if seller: return 'sotuvchi'
         else: return 'not_registered'
             
