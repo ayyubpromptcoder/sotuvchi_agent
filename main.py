@@ -8,7 +8,6 @@ from telegram.ext import (
 )
 
 # db.py dan kerakli funksiyalarni import qilamiz
-# Agar ulanish xatosi bo'lsa, bu yerda ham print() yordamida log chiqaramiz.
 try:
     from db import (
         get_user_role, add_new_product, get_all_products, 
@@ -24,6 +23,7 @@ except ImportError:
 # --- 1. Konfiguratsiya va Global Holatlar ---
 TOKEN = os.getenv("BOT_TOKEN")
 # ADMIN_IDS ni muhit o'zgaruvchisidan o'qish, listga aylantirish.
+# Agar muhit o'zgaruvchisi bo'sh bo'lsa, bo'sh list qaytadi.
 ADMIN_IDS = [int(i.strip()) for i in os.getenv("ADMIN_IDS", "").split(',') if i.strip()]
 
 # Holatlar (ConversationHandler uchun)
@@ -49,9 +49,13 @@ def get_formatted_price(price: float) -> str:
 
 # /start buyrug'ini qayta ishlash
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Bu funksiya ishlaganini ko'rish uchun log
     chat_id = update.effective_chat.id
     
+    # --- TEKSHIRUV QATORI (BIRINCHI JAVOB) ---
+    # Bu qator botning Telegram bilan bog'lana olganini darhol tekshiradi.
+    await update.message.reply_text("✅ Tizim sizning xabaringizni qabul qildi. Davom etilmoqda...") 
+    # --- TEKSHIRUV QATORI (BIRINCHI JAVOB) ---
+
     print(f"🤖 /start buyrug'i qabul qilindi. Chat ID: {chat_id}") # <--- LOG 1
     
     try:
@@ -85,7 +89,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return AWAITING_PASSWORD
         
     except Exception as e:
-        print(f"!!! KRITIK XATO start_command da: {e}", file=sys.stderr) # <--- KRITIK XATO LOG
+        # Agar yuqorida biror xato yuz bersa (masalan, DB ulanishi uzilib qolsa)
+        print(f"!!! KRITIK XATO start_command da: {e}", file=sys.stderr) 
         await update.message.reply_text("Kechirasiz, tizimda ichki xato yuz berdi. Iltimos, keyinroq urinib ko'ring.")
         return ConversationHandler.END
 
@@ -98,6 +103,7 @@ async def handle_password(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     if seller_data:
         update_seller_chat_id(seller_data['id'], chat_id)
+        # Eslatma: Keyingi xabar userga /start bosishni so'raydi, bu esa ConversationHandler.END bilan to'g'ri ishlashi uchun muhim.
         await update.message.reply_text(
             f"Muvaffaqiyatli kirdingiz, {seller_data['ism']}! Endi /start buyrug'ini bosing.",
             reply_markup=ReplyKeyboardRemove()
