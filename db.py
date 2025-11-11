@@ -2,9 +2,10 @@
 import os
 import psycopg2
 from psycopg2 import sql
+from typing import List, Dict, Tuple, Optional
 
 # Muhit o'zgaruvchilarini yuklaymiz (Render/OS dan)
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
 
 # --- 1. DB Ulanish Funksiyasi ---
 def get_db_connection():
@@ -69,9 +70,10 @@ def create_tables():
         cur.close()
         conn.close()
 
-# --- 3. CRUD: Foydalanuvchi Rolini Aniqlash ---
-def get_user_role(chat_id):
-    """PostgreSQL bo'yicha sotuvchi rolini aniqlaydi."""
+# --- 3. CRUD: Foydalanuvchi va ID Funksiyalari ---
+
+def get_user_role(chat_id: int) -> str:
+    """Chat ID bo'yicha foydalanuvchi rolini aniqlaydi."""
     conn = get_db_connection()
     if not conn: return 'none'
     cur = conn.cursor()
@@ -86,7 +88,7 @@ def get_user_role(chat_id):
         cur.close()
         conn.close()
         
-def get_seller_id_by_chat_id(chat_id):
+def get_seller_id_by_chat_id(chat_id: int) -> Optional[int]:
     """Chat ID orqali sotuvchi ID'sini oladi."""
     conn = get_db_connection()
     if not conn: return None
@@ -102,7 +104,6 @@ def get_seller_id_by_chat_id(chat_id):
         cur.close()
         conn.close()
 
-
 # --- 4. CRUD: Mahsulotlar Bo'limi Funksiyalari ---
 
 def add_new_product(product_name: str, price: float) -> bool:
@@ -111,6 +112,7 @@ def add_new_product(product_name: str, price: float) -> bool:
     if not conn: return False
     cur = conn.cursor()
     try:
+        # ON CONFLICT DO NOTHING - Bu mahsulot nomi takrorlansa, xatolik berishdan saqlaydi.
         cur.execute(
             "INSERT INTO products (mahsulot_nomi, narxi) VALUES (%s, %s) ON CONFLICT (mahsulot_nomi) DO NOTHING;",
             (product_name, price)
@@ -124,7 +126,7 @@ def add_new_product(product_name: str, price: float) -> bool:
         cur.close()
         conn.close()
 
-def get_all_products():
+def get_all_products() -> List[Dict]:
     """Barcha mahsulotlar nomini va narxini bazadan oladi."""
     conn = get_db_connection()
     if not conn: return []
@@ -147,7 +149,7 @@ def get_all_products():
 
 # --- 5. CRUD: Sotuvchilar Bo'limi Funksiyalari ---
 
-def add_new_seller(ism, mahalla, telefon, parol) -> bool:
+def add_new_seller(ism: str, mahalla: str, telefon: str, parol: str) -> bool:
     """Yangi sotuvchini bazaga qo'shadi."""
     conn = get_db_connection()
     if not conn: return False
@@ -169,7 +171,7 @@ def add_new_seller(ism, mahalla, telefon, parol) -> bool:
         cur.close()
         conn.close()
 
-def get_seller_by_password(password: str):
+def get_seller_by_password(password: str) -> Optional[Dict]:
     """Parol orqali sotuvchini topadi."""
     conn = get_db_connection()
     if not conn: return None
@@ -189,7 +191,7 @@ def get_seller_by_password(password: str):
         cur.close()
         conn.close()
 
-def update_seller_chat_id(seller_id, chat_id):
+def update_seller_chat_id(seller_id: int, chat_id: int) -> bool:
     """Sotuvchining chat_id'sini ro'yxatdan o'tkazadi."""
     conn = get_db_connection()
     if not conn: return False
@@ -208,7 +210,7 @@ def update_seller_chat_id(seller_id, chat_id):
         cur.close()
         conn.close()
 
-def get_all_sellers():
+def get_all_sellers() -> List[Dict]:
     """Barcha sotuvchilarni ism bo'yicha alfavit tartibida oladi."""
     conn = get_db_connection()
     if not conn: return []
@@ -234,7 +236,28 @@ def get_all_sellers():
         cur.close()
         conn.close()
 
-def get_seller_password_by_id(seller_id):
+def get_all_seller_passwords() -> List[Dict]:
+    """Barcha sotuvchilar ismlari va parollarini oladi."""
+    conn = get_db_connection()
+    if not conn: return []
+    cur = conn.cursor()
+    passwords = []
+    try:
+        cur.execute(
+            "SELECT ism, parol FROM sellers ORDER BY ism ASC"
+        )
+        results = cur.fetchall()
+        for ism, parol in results:
+            passwords.append({'ism': ism, 'parol': parol})
+        return passwords
+    except Exception as e:
+        print(f"Sotuvchi parollarini olishda xato: {e}")
+        return []
+    finally:
+        cur.close()
+        conn.close()
+
+def get_seller_password_by_id(seller_id: int) -> Optional[str]:
     """Sotuvchi ID'si orqali parolni oladi."""
     conn = get_db_connection()
     if not conn: return None
@@ -253,7 +276,7 @@ def get_seller_password_by_id(seller_id):
         conn.close()
 
 # --- 6. CRUD: Yangi Tovar Berish (Inventory) ---
-def add_inventory(seller_id: int, product_id: int, count: int) -> tuple[bool, str, float]:
+def add_inventory(seller_id: int, product_id: int, count: int) -> Tuple[bool, str, float]:
     """Sotuvchiga yangi tovar kiritadi va jami narxni qaytaradi."""
     conn = get_db_connection()
     if not conn: return False, "DB ulanish xatosi", 0.0
@@ -289,8 +312,8 @@ def add_inventory(seller_id: int, product_id: int, count: int) -> tuple[bool, st
         cur.close()
         conn.close()
 
-# --- 7. CRUD: Sotuvchi Qarzdorligini Olish ---
-def get_seller_debt_details(seller_id: int):
+# --- 7. CRUD: Qarzdorlikni Olish ---
+def get_seller_debt_details(seller_id: int) -> Tuple[float, List[Dict]]:
     """
     Berilgan sotuvchi ID bo'yicha olgan barcha tovarlar ro'yxatini va jami qarzdorlikni hisoblaydi.
     """
@@ -328,11 +351,11 @@ def get_seller_debt_details(seller_id: int):
         results = cur.fetchall()
         
         for name, count, total_price, date in results:
-            # Vaqtni formatlash
             inventory_items.append({
                 'mahsulot_nomi': name,
                 'soni': count,
                 'jami_narxi': float(total_price),
+                # Vaqtni formatlash
                 'sana': date.strftime("%Y-%m-%d %H:%M") 
             })
             
@@ -346,4 +369,5 @@ def get_seller_debt_details(seller_id: int):
         conn.close()
 
 if __name__ == '__main__':
+    # Faylni to'g'ridan-to'g'ri ishga tushirganda jadvallarni yaratadi
     create_tables()
